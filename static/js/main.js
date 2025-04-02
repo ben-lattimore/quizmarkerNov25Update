@@ -233,25 +233,36 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 `;
             } else {
-                // Success case - show extracted text
+                // Success case - show structured extracted text
+                const data = result.data;
+                
+                // Helper function to render a content section if it exists
+                const renderSection = (title, content, icon, cssClass = '') => {
+                    if (!content || content.trim() === '') return '';
+                    return `
+                        <div class="mb-3 ${cssClass}">
+                            <h6><i class="fas ${icon} me-2"></i>${title}:</h6>
+                            <div class="p-2 border rounded bg-dark">
+                                ${content}
+                            </div>
+                        </div>
+                    `;
+                };
+                
                 resultCard.innerHTML = `
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h6 class="mb-0"><i class="fas fa-file-image me-2"></i>Image: ${result.filename}</h6>
                         <span class="badge bg-success">ID: ${result.image_id}</span>
                     </div>
                     <div class="card-body">
-                        <div class="mb-3">
-                            <h6><i class="fas fa-align-left me-2"></i>Extracted Text:</h6>
-                            <div class="p-2 border rounded bg-dark">
-                                ${result.data.extracted_text || 'No text extracted'}
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <h6><i class="fas fa-info-circle me-2"></i>Analysis:</h6>
-                            <div class="p-2 border rounded bg-dark">
-                                ${result.data.analysis || 'No analysis available'}
-                            </div>
-                        </div>
+                        ${renderSection('Document Type', data.document_type, 'fa-file-alt')}
+                        ${renderSection('Title', data.title, 'fa-heading', 'text-primary')}
+                        ${renderSection('Subtitle', data.subtitle, 'fa-heading fs-sm')}
+                        ${renderSection('Main Instructions', data.main_instructions, 'fa-info-circle')}
+                        ${renderSection('Handwritten Content', data.handwritten_content, 'fa-pen', 'text-info')}
+                        ${renderSection('Printed Content', data.printed_content, 'fa-print')}
+                        ${renderSection('Reference Information', data.reference_info, 'fa-bookmark')}
+                        ${renderSection('Other Elements', data.other_elements, 'fa-layer-group')}
                     </div>
                 `;
             }

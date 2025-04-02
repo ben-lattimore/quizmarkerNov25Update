@@ -28,14 +28,33 @@ def extract_text_from_image(image_path):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a text extraction expert. Analyze the provided image and extract all visible text. Format your response as a JSON object with the following structure: {\"extracted_text\": \"full text found in the image\", \"analysis\": \"brief analysis of what kind of document or image this appears to be\", \"content_structure\": {\"key elements identified in a structured way\"}}"
+                    "content": """You are a text extraction expert. Analyze the provided image and extract all visible text, carefully organizing it into structured categories.
+
+Pay special attention to:
+1. Titles or headers (often larger or bold text)
+2. Main or lead text (the primary content or instructions)
+3. Handwritten text (differentiate from printed text)
+4. Informational text (footnotes, page numbers, references)
+5. Questions, instructions, or prompts in the image
+
+Format your response as a detailed JSON object with the following structure:
+{
+  "document_type": "brief description of what kind of document this is",
+  "title": "the main title or header of the document",
+  "subtitle": "any secondary title or identifier",
+  "main_instructions": "primary instructions or lead text",
+  "handwritten_content": "all handwritten text, accurately transcribed",
+  "printed_content": "all machine-printed text not captured in other fields",
+  "reference_info": "any reference numbers, page numbers, dates",
+  "other_elements": "any other notable textual elements"
+}"""
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text", 
-                            "text": "Extract all the text from this image and provide it in a structured JSON format. Include all visible text content."
+                            "text": "Extract all text from this image and organize it into a structured JSON format. Carefully distinguish between different text elements (titles, instructions, handwritten text, etc.) and ensure each is properly categorized."
                         },
                         {
                             "type": "image_url",
