@@ -147,6 +147,30 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Additional warning for multiple files
+        if (files.length > 1) {
+            // Add info about longer processing time for multiple files
+            const warningElem = document.createElement('div');
+            warningElem.id = 'multipleFilesWarning';
+            warningElem.className = 'alert alert-info mb-3';
+            warningElem.innerHTML = `
+                <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Processing Multiple Images</h5>
+                <p>You're uploading ${files.length} images. Each image is processed individually, so this might take some time.</p>
+                <ul>
+                    <li>Please wait for processing to complete.</li>
+                    <li>Do not close or refresh the browser.</li>
+                    <li>Each image takes approximately 10-30 seconds to process.</li>
+                </ul>
+            `;
+            
+            // Remove previous warning if exists
+            const oldWarning = document.getElementById('multipleFilesWarning');
+            if (oldWarning) oldWarning.remove();
+            
+            // Add the warning before the processing card
+            processingCard.parentNode.insertBefore(warningElem, processingCard);
+        }
+        
         // Show processing card and hide upload form
         processingCard.classList.remove('d-none');
         progressBar.style.width = '10%';
@@ -156,16 +180,26 @@ document.addEventListener('DOMContentLoaded', function() {
             // Upload files
             progressBar.style.width = '25%';
             
-            // Update status with file count info
+            // Update status with file count info and more details
             const fileCountMessage = files.length === 1 
                 ? 'Processing 1 image with GPT-4o...'
-                : `Processing ${files.length} images with GPT-4o...`;
+                : `Processing ${files.length} images with GPT-4o (this may take a few minutes)...`;
             statusMessage.textContent = fileCountMessage;
             
-            // Use more robust error handling with better timeout management
+            // Use more robust error handling with increased timeout for multiple images
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000); // 60-second timeout
+            // Set longer timeout based on number of files (90 seconds per file, min 60 seconds)
+            const timeoutMs = Math.max(60000, files.length * 90000);
             
+            // Log timeout info for debugging
+            console.log(`Request timeout set to ${timeoutMs/1000} seconds for ${files.length} files`);
+            
+            const timeoutId = setTimeout(() => {
+                controller.abort();
+                console.warn(`Request aborted after ${timeoutMs/1000} seconds timeout`);
+            }, timeoutMs);
+            
+            // Start the request
             const response = await fetch('/upload', {
                 method: 'POST',
                 body: formData,
@@ -179,17 +213,20 @@ document.addEventListener('DOMContentLoaded', function() {
             // Handle different types of errors
             if (!response.ok) {
                 let errorMessage = 'Failed to process images';
+                let errorDetails = '';
                 
                 try {
                     // Attempt to parse error response as JSON
                     const errorData = await response.json();
                     errorMessage = errorData.error || errorMessage;
+                    errorDetails = errorData.details || '';
                 } catch (parseError) {
                     // If response is not valid JSON, use status text
                     errorMessage = `Server error (${response.status}): ${response.statusText}`;
+                    console.error('Error parsing server response:', parseError);
                 }
                 
-                throw new Error(errorMessage);
+                throw new Error(`${errorMessage}${errorDetails ? '\n\nDetails: ' + errorDetails : ''}`);
             }
             
             // Safely parse the JSON response with error handling

@@ -1,35 +1,80 @@
 import os
 import base64
 import json
+import time
 import logging
-from openai import OpenAI
+import traceback
+from openai import OpenAI, APITimeoutError, RateLimitError, BadRequestError
 
 # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
 # do not change this unless explicitly requested by the user
 
-# Configure OpenAI client
+# Configure OpenAI client with timeout and connection settings
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-openai = OpenAI(api_key=OPENAI_API_KEY)
+timeout_settings = 90.0  # 90 seconds timeout for API calls
+max_retries = 2  # Try up to 3 times total (1 initial + 2 retries)
+retry_delay = 2  # Wait 2 seconds between retries
+api_timeout_error_msg = "OpenAI API request timed out. The service might be experiencing high load."
+
+# Initialize OpenAI client with improved timeout settings
+openai = OpenAI(
+    api_key=OPENAI_API_KEY,
+    timeout=timeout_settings,
+    max_retries=max_retries
+)
 
 def encode_image_to_base64(image_path):
     """Convert an image file to base64 encoding"""
-    with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
-
-def extract_text_from_image(image_path):
-    """Extract text from an image using GPT-4o vision"""
     try:
-        # Encode the image to base64
-        base64_image = encode_image_to_base64(image_path)
-        logging.info(f"Successfully encoded image: {os.path.basename(image_path)}")
-        
-        # Create the API request to GPT-4o
-        response = openai.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": """You are a text extraction expert. Analyze the provided image and extract all visible text, carefully organizing it into structured categories.
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+    except Exception as e:
+        logging.error(f"Error encoding image {image_path}: {e}")
+        raise ValueError(f"Failed to encode image: {str(e)}")
+
+def extract_text_from_image(image_path, max_attempts=3):
+    """
+    Extract text from an image using GPT-4o vision with retry logic
+    
+    Args:
+        image_path: Path to the image file
+        max_attempts: Maximum number of API call attempts
+    """
+    attempt = 0
+    last_error = None
+    
+    # Log basic information for this processing request
+    filename = os.path.basename(image_path)
+    file_size = os.path.getsize(image_path) / 1024  # Size in KB
+    logging.info(f"Processing image: {filename} ({file_size:.1f} KB)")
+    
+    while attempt < max_attempts:
+        attempt += 1
+        try:
+            logging.info(f"API attempt {attempt}/{max_attempts} for {filename}")
+            
+            # Encode the image to base64
+            base64_image = encode_image_to_base64(image_path)
+            logging.info(f"Successfully encoded image: {filename}")
+            
+            # Make the API request with timeout handling
+            start_time = time.time()
+            
+            # Get image file information for logging purposes
+            img_size_kb = os.path.getsize(image_path) / 1024
+            img_ext = os.path.splitext(image_path)[1]
+            
+            # Log these details for troubleshooting
+            logging.info(f"Making API request for {filename} ({img_size_kb:.1f} KB, {img_ext})")
+            
+            try:
+                # Use temperature=0 for more deterministic results
+                response = openai.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": """You are a text extraction expert. Analyze the provided image and extract all visible text, carefully organizing it into structured categories.
 
 Pay special attention to:
 1. Titles or headers (often larger or bold text)
@@ -49,60 +94,103 @@ Format your response as a detailed JSON object with the following structure:
   "reference_info": "any reference numbers, page numbers, dates",
   "other_elements": "any other notable textual elements"
 }"""
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text", 
-                            "text": "Extract all text from this image and organize it into a structured JSON format. Carefully distinguish between different text elements (titles, instructions, handwritten text, etc.) and ensure each is properly categorized."
                         },
                         {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text", 
+                                    "text": "Extract all text from this image and organize it into a structured JSON format. Carefully distinguish between different text elements (titles, instructions, handwritten text, etc.) and ensure each is properly categorized."
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                                }
+                            ]
                         }
-                    ]
-                }
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=1500
-        )
-        
-        # Extract the content from the response
-        content = response.choices[0].message.content
-        logging.info(f"Received response for image: {os.path.basename(image_path)}")
-        
-        # Verify the response is valid JSON and not empty
-        if not content:
-            raise ValueError("Empty response received from OpenAI")
+                    ],
+                    response_format={"type": "json_object"},
+                    max_tokens=1500,
+                    temperature=0
+                )
+            except Exception as api_err:
+                # Specific handling for API errors with more details
+                elapsed_time = time.time() - start_time
+                logging.error(f"API error after {elapsed_time:.2f}s: {str(api_err)}")
+                raise
             
-        try:
-            # Parse the JSON response
-            result = json.loads(content)
+            # Calculate and log API response time
+            elapsed_time = time.time() - start_time
+            logging.info(f"OpenAI API response received in {elapsed_time:.2f} seconds for {filename}")
             
-            # Validate that we have a dictionary
-            if not isinstance(result, dict):
-                raise ValueError("Response is not a valid JSON object")
+            # Extract the content from the response
+            content = response.choices[0].message.content
+            
+            # Verify the response is valid JSON and not empty
+            if not content:
+                raise ValueError("Empty response received from OpenAI")
                 
-            # Check if we have at least some expected keys
-            required_keys = ["document_type", "title", "handwritten_content", "printed_content"]
-            missing_keys = [key for key in required_keys if key not in result]
-            
-            if missing_keys:
-                logging.warning(f"Response missing expected keys: {missing_keys}")
-                # Add empty values for missing keys to avoid frontend errors
-                for key in missing_keys:
-                    result[key] = ""
+            try:
+                # Parse the JSON response
+                result = json.loads(content)
+                
+                # Validate that we have a dictionary
+                if not isinstance(result, dict):
+                    raise ValueError("Response is not a valid JSON object")
                     
-            return result
+                # Check if we have at least some expected keys
+                required_keys = ["document_type", "title", "handwritten_content", "printed_content"]
+                missing_keys = [key for key in required_keys if key not in result]
+                
+                if missing_keys:
+                    logging.warning(f"Response missing expected keys: {missing_keys}")
+                    # Add empty values for missing keys to avoid frontend errors
+                    for key in missing_keys:
+                        result[key] = ""
+                        
+                # Success! Return the result
+                logging.info(f"Successfully extracted text from {filename}")
+                return result
+                
+            except json.JSONDecodeError as json_err:
+                logging.error(f"Failed to parse JSON response: {json_err}")
+                raise ValueError(f"Invalid JSON response: {str(json_err)}")
+        
+        except (APITimeoutError, RateLimitError) as timeout_err:
+            # Handle timeout-specific errors
+            last_error = timeout_err
+            logging.warning(f"API timeout on attempt {attempt} for {filename}: {str(timeout_err)}")
             
-        except json.JSONDecodeError as json_err:
-            logging.error(f"Failed to parse JSON response: {json_err}")
-            raise ValueError(f"Invalid JSON response: {str(json_err)}")
+            if attempt < max_attempts:
+                # Calculate exponential backoff
+                wait_time = retry_delay * (2 ** (attempt - 1))
+                logging.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logging.error(f"Max retries ({max_attempts}) reached for {filename}")
+                
+        except BadRequestError as api_err:
+            # Handle API-specific errors that won't benefit from retries
+            last_error = api_err
+            logging.error(f"Bad request error: {str(api_err)}")
+            break  # Don't retry on bad requests
+            
+        except Exception as e:
+            # General error handling
+            last_error = e
+            logging.error(f"Error on attempt {attempt} for {filename}: {e}")
+            logging.debug(f"Traceback: {traceback.format_exc()}")
+            
+            if attempt < max_attempts:
+                # Wait before retrying
+                time.sleep(retry_delay)
+            else:
+                logging.error(f"Failed after {max_attempts} attempts for {filename}")
     
-    except Exception as e:
-        logging.error(f"Error extracting text from image {image_path}: {e}")
-        raise Exception(f"Failed to process image: {str(e)}")
+    # If we got here, all attempts failed
+    error_message = f"Failed to process image after {max_attempts} attempts: {str(last_error)}"
+    logging.error(error_message)
+    raise Exception(error_message)
 
 def process_single_image(image_path, image_id=1):
     """Process a single image and extract text from it

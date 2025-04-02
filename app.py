@@ -81,18 +81,35 @@ def upload_files():
             return jsonify({'error': 'No valid image files provided'}), 400
         
         # Process each image individually to avoid timeouts
-        logging.info(f"Starting to process {len(valid_files)} valid images")
+        total_images = len(valid_files)
+        logging.info(f"Starting to process {total_images} valid images")
         results = []
+        
+        # Determine delay between requests based on total images
+        # Increase delay for more images to avoid rate limits
+        base_delay = 1.0  # Base delay in seconds
+        delay_multiplier = max(1, min(3, total_images / 2))  # Scale with number of images, capped at 3x
+        inter_request_delay = base_delay * delay_multiplier
+        
+        logging.info(f"Using inter-request delay of {inter_request_delay:.1f} seconds")
         
         for i, file_info in enumerate(valid_files):
             filepath = file_info['filepath']
             original_filename = file_info['original_filename']
             
-            logging.info(f"Processing image {i+1}/{len(valid_files)}: {original_filename}")
+            # Log progress with percentage
+            progress_pct = ((i + 1) / total_images) * 100
+            logging.info(f"Processing image {i+1}/{total_images} ({progress_pct:.1f}%): {original_filename}")
             
             try:
-                # Process one image at a time
+                # Time the processing for monitoring
+                process_start = time.time()
+                
+                # Process one image at a time with retry logic built in
                 result = process_single_image(filepath, i+1)
+                
+                process_time = time.time() - process_start
+                logging.info(f"Processed image {i+1} in {process_time:.2f} seconds")
                 
                 # Replace the unique filename with the original filename
                 if 'filename' in result:
@@ -100,14 +117,20 @@ def upload_files():
                 
                 # Add to results
                 results.append(result)
-                logging.info(f"Successfully processed image {i+1}: {original_filename}")
                 
-                # Add a small delay between API calls for stability
-                if i < len(valid_files) - 1:
-                    time.sleep(0.5)
+                # Log success/error status
+                if 'error' in result:
+                    logging.warning(f"Image {i+1} processed with errors: {original_filename}")
+                else:
+                    logging.info(f"Successfully processed image {i+1}: {original_filename}")
+                
+                # Add a delay between API calls - longer for more files
+                if i < total_images - 1:
+                    logging.info(f"Waiting {inter_request_delay:.1f} seconds before next image")
+                    time.sleep(inter_request_delay)
                 
             except Exception as proc_error:
-                logging.error(f"Error processing image {original_filename}: {proc_error}")
+                logging.error(f"Critical error processing image {original_filename}: {proc_error}")
                 
                 # Add error info to results
                 results.append({
