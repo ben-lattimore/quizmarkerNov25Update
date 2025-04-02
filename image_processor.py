@@ -104,50 +104,65 @@ Format your response as a detailed JSON object with the following structure:
         logging.error(f"Error extracting text from image {image_path}: {e}")
         raise Exception(f"Failed to process image: {str(e)}")
 
+def process_single_image(image_path, image_id=1):
+    """Process a single image and extract text from it
+    
+    Args:
+        image_path: Path to the image file
+        image_id: Identifier for this image in the sequence
+        
+    Returns:
+        A dictionary with the extraction results or error information
+    """
+    try:
+        # Get the filename for identification
+        filename = os.path.basename(image_path)
+        
+        try:
+            # Extract text from the image
+            extraction_result = extract_text_from_image(image_path)
+            
+            # Verify JSON structure - this helps catch malformed responses
+            if not isinstance(extraction_result, dict):
+                raise ValueError("Invalid response format received")
+            
+            # Return structured result
+            return {
+                "image_id": image_id,
+                "filename": filename,
+                "data": extraction_result
+            }
+            
+        except Exception as extract_error:
+            # Specific error for this image only
+            logging.error(f"Error extracting text from image {filename}: {str(extract_error)}")
+            return {
+                "image_id": image_id,
+                "filename": filename,
+                "error": f"Failed to process image: {str(extract_error)}"
+            }
+    
+    except Exception as e:
+        # Critical error handling
+        logging.error(f"Critical error with image {image_id}: {str(e)}")
+        return {
+            "image_id": image_id,
+            "filename": os.path.basename(image_path) if image_path else f"unknown-{image_id}",
+            "error": f"Processing error: {str(e)}"
+        }
+
 def process_images(image_paths):
-    """Process a list of images and extract text from each"""
+    """Process a list of images and extract text from each
+    
+    This function now calls process_single_image for each image path
+    to better isolate errors and prevent one image from affecting others.
+    """
     results = []
     
     for i, image_path in enumerate(image_paths):
-        try:
-            # Get the filename for identification
-            filename = os.path.basename(image_path)
-            logging.info(f"Processing image {i+1}/{len(image_paths)}: {filename}")
-            
-            try:
-                # Extract text from the image - process one at a time
-                extraction_result = extract_text_from_image(image_path)
-                
-                # Verify JSON structure - this helps catch malformed responses
-                if not isinstance(extraction_result, dict):
-                    raise ValueError("Invalid response format received")
-                
-                # Add to results with image identifier
-                results.append({
-                    "image_id": i + 1,
-                    "filename": filename,
-                    "data": extraction_result
-                })
-                
-                logging.info(f"Successfully processed image: {filename}")
-                
-            except Exception as extract_error:
-                # Specific error for this image only
-                logging.error(f"Error extracting text from image {filename}: {str(extract_error)}")
-                results.append({
-                    "image_id": i + 1,
-                    "filename": filename,
-                    "error": f"Failed to process image: {str(extract_error)}"
-                })
-        
-        except Exception as e:
-            # Critical error handling for the entire image
-            logging.error(f"Critical error with image {i+1}: {str(e)}")
-            results.append({
-                "image_id": i + 1,
-                "filename": os.path.basename(image_path) if image_path else f"unknown-{i+1}",
-                "error": f"Processing error: {str(e)}"
-            })
+        # Process each image independently
+        result = process_single_image(image_path, i + 1)
+        results.append(result)
     
     # Return whatever results we have managed to collect
     return results
