@@ -4,7 +4,7 @@ import uuid
 import time
 from flask import Flask, render_template, request, jsonify, session
 from werkzeug.utils import secure_filename
-from image_processor import process_single_image
+from image_processor import process_single_image, process_images
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -80,64 +80,29 @@ def upload_files():
         if not valid_files:
             return jsonify({'error': 'No valid image files provided'}), 400
         
-        # Process each image individually to avoid timeouts
+        # Extract just the filepaths for processing
         total_images = len(valid_files)
-        logging.info(f"Starting to process {total_images} valid images")
-        results = []
+        filepaths = [file_info['filepath'] for file_info in valid_files]
+        original_filenames = [file_info['original_filename'] for file_info in valid_files]
         
-        # Determine delay between requests based on total images
-        # Increase delay for more images to avoid rate limits
-        base_delay = 1.0  # Base delay in seconds
-        delay_multiplier = max(1, min(3, total_images / 2))  # Scale with number of images, capped at 3x
-        inter_request_delay = base_delay * delay_multiplier
+        logging.info(f"Processing {total_images} images with optimized processor")
         
-        logging.info(f"Using inter-request delay of {inter_request_delay:.1f} seconds")
+        # Process all images with our improved process_images function
+        # which handles delays and retries internally
+        process_start = time.time()
+        results = process_images(filepaths)
+        process_time = time.time() - process_start
         
-        for i, file_info in enumerate(valid_files):
-            filepath = file_info['filepath']
-            original_filename = file_info['original_filename']
-            
-            # Log progress with percentage
-            progress_pct = ((i + 1) / total_images) * 100
-            logging.info(f"Processing image {i+1}/{total_images} ({progress_pct:.1f}%): {original_filename}")
-            
-            try:
-                # Time the processing for monitoring
-                process_start = time.time()
-                
-                # Process one image at a time with retry logic built in
-                result = process_single_image(filepath, i+1)
-                
-                process_time = time.time() - process_start
-                logging.info(f"Processed image {i+1} in {process_time:.2f} seconds")
-                
-                # Replace the unique filename with the original filename
-                if 'filename' in result:
-                    result['filename'] = original_filename
-                
-                # Add to results
-                results.append(result)
-                
-                # Log success/error status
-                if 'error' in result:
-                    logging.warning(f"Image {i+1} processed with errors: {original_filename}")
-                else:
-                    logging.info(f"Successfully processed image {i+1}: {original_filename}")
-                
-                # Add a delay between API calls - longer for more files
-                if i < total_images - 1:
-                    logging.info(f"Waiting {inter_request_delay:.1f} seconds before next image")
-                    time.sleep(inter_request_delay)
-                
-            except Exception as proc_error:
-                logging.error(f"Critical error processing image {original_filename}: {proc_error}")
-                
-                # Add error info to results
-                results.append({
-                    "image_id": i + 1,
-                    "filename": original_filename,
-                    "error": f"Failed to process: {str(proc_error)}"
-                })
+        logging.info(f"Processed {len(results)} images in {process_time:.2f} seconds")
+        
+        # Replace unique filenames with original ones in results
+        for i, result in enumerate(results):
+            if i < len(original_filenames) and 'filename' in result:
+                result['filename'] = original_filenames[i]
+        
+        # Log success/error status
+        success_count = sum(1 for r in results if "error" not in r)
+        logging.info(f"Successfully processed {success_count}/{total_images} images")
         
         # Check if we have any results at all
         if not results:

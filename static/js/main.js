@@ -139,8 +139,15 @@ document.addEventListener('DOMContentLoaded', function() {
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        const formData = new FormData(this);
+        // Create a new FormData object and append files with the correct name
+        const formData = new FormData();
         const files = fileInput.files;
+        
+        // Make sure we're using the correct field name expected by the server
+        // The server expects 'files[]' based on the endpoint code
+        for(let i = 0; i < files.length; i++) {
+            formData.append('files[]', files[i]);
+        }
         
         if (files.length === 0) {
             showError('Please select at least one image file');
