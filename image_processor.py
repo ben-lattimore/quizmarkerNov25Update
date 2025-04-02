@@ -287,3 +287,112 @@ def process_images(image_paths):
     
     # Return whatever results we have managed to collect
     return results
+
+def grade_answers(extracted_data, pdf_path):
+    """
+    Grade handwritten answers against a reference PDF
+    
+    Args:
+        extracted_data: A list of dictionaries containing extracted text data
+        pdf_path: Path to the reference PDF file
+        
+    Returns:
+        A list of dictionaries with the graded results
+    """
+    try:
+        logging.info(f"Starting grading process for {len(extracted_data)} uploaded images against {pdf_path}")
+        
+        # Encode the PDF to base64
+        with open(pdf_path, "rb") as pdf_file:
+            base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
+        
+        # Convert the extracted_data to a formatted string for the prompt
+        extraction_json = json.dumps(extracted_data, indent=2)
+        
+        # Construct the prompt for grading
+        prompt = f"""You are an expert in grading handwritten answers against reference materials. 
+        
+I'll provide you with:
+1. JSON data containing extracted text from images, with handwritten answers in the "handwritten_content" field
+2. A reference PDF document with educational content
+
+Your task:
+- Evaluate each handwritten answer against the reference PDF content
+- For each answer, determine if it's correct, partially correct, or incorrect
+- Assign a score out of 10 for each entry
+- Provide brief feedback on why points were awarded or deducted
+
+Reference PDF contains information about personal development plans, supervision, and learning in healthcare.
+
+Here's the extracted JSON data with handwritten answers:
+{extraction_json}
+"""
+        
+        logging.info("Making API request to grade answers")
+        
+        # Call the OpenAI API
+        start_time = time.time()
+        
+        try:
+            # Use gpt-4o for optimal grading capability 
+            # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
+            # do not change this unless explicitly requested by the user
+            response = openai.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are an expert grading system for educational assessments. Grade handwritten answers against reference materials with fairness and accuracy."
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "file_url",
+                                "file_url": {
+                                    "url": f"data:application/pdf;base64,{base64_pdf}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=4000,
+                temperature=0
+            )
+        except Exception as api_err:
+            elapsed_time = time.time() - start_time
+            logging.error(f"API error after {elapsed_time:.2f}s: {str(api_err)}")
+            raise
+        
+        # Calculate and log API response time
+        elapsed_time = time.time() - start_time
+        logging.info(f"OpenAI API response received in {elapsed_time:.2f} seconds for grading")
+        
+        # Extract the grading results from the response
+        content = response.choices[0].message.content
+        
+        # Verify the response is valid JSON and not empty
+        if not content:
+            raise ValueError("Empty response received from OpenAI")
+            
+        try:
+            # Parse the JSON response
+            grading_results = json.loads(content)
+            
+            # Return the grading results
+            logging.info(f"Successfully graded {len(extracted_data)} answers")
+            return grading_results
+            
+        except json.JSONDecodeError as json_err:
+            logging.error(f"Failed to parse JSON response: {json_err}")
+            raise ValueError(f"Invalid JSON response: {str(json_err)}")
+    
+    except Exception as e:
+        logging.error(f"Error during grading process: {e}")
+        logging.debug(f"Traceback: {traceback.format_exc()}")
+        raise Exception(f"Failed to grade answers: {str(e)}")

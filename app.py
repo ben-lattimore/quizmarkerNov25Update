@@ -2,9 +2,10 @@ import os
 import logging
 import uuid
 import time
+import json
 from flask import Flask, render_template, request, jsonify, session
 from werkzeug.utils import secure_filename
-from image_processor import process_single_image, process_images
+from image_processor import process_single_image, process_images, grade_answers
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -15,11 +16,14 @@ app.secret_key = os.environ.get("SESSION_SECRET", str(uuid.uuid4()))
 
 # Configure uploads
 UPLOAD_FOLDER = '/tmp/image_uploads'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'}
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload size
+
+# Path to the reference PDF for grading
+REFERENCE_PDF_PATH = "attached_assets/Standard-2.pdf"
 
 def allowed_file(filename):
     return '.' in filename and \
@@ -141,6 +145,58 @@ def upload_files():
             except Exception as clean_e:
                 logging.error(f"Failed to remove temporary file {filepath}: {clean_e}")
         
+        return jsonify({'error': f"Server error: {str(e)}"}), 500
+
+@app.route('/grade', methods=['POST'])
+def grade_answers_route():
+    """
+    Grade handwritten answers against the reference PDF
+    
+    Expects a JSON payload with the 'data' field containing the extracted text results
+    """
+    try:
+        # Verify we have data in the request
+        if not request.json or 'data' not in request.json:
+            return jsonify({'error': 'No data provided. Expected JSON with "data" field.'}), 400
+        
+        # Get the extracted data
+        extracted_data = request.json['data']
+        
+        if not extracted_data or not isinstance(extracted_data, list):
+            return jsonify({'error': 'Invalid data format. Expected a list of extraction results.'}), 400
+        
+        # Filter out any failed extractions
+        valid_extractions = [item for item in extracted_data if "error" not in item]
+        
+        if not valid_extractions:
+            return jsonify({'error': 'No valid extractions to grade.'}), 400
+        
+        logging.info(f"Grading {len(valid_extractions)} valid extractions")
+        
+        # Check if the reference PDF exists
+        if not os.path.exists(REFERENCE_PDF_PATH):
+            return jsonify({'error': 'Reference PDF not found.'}), 500
+        
+        # Grade the answers
+        try:
+            grading_start = time.time()
+            grading_results = grade_answers(valid_extractions, REFERENCE_PDF_PATH)
+            grading_time = time.time() - grading_start
+            
+            logging.info(f"Graded answers in {grading_time:.2f} seconds")
+            
+            # Return the grading results
+            return jsonify({
+                'success': True,
+                'results': grading_results
+            })
+            
+        except Exception as grading_error:
+            logging.error(f"Error during grading: {grading_error}", exc_info=True)
+            return jsonify({'error': f"Grading failed: {str(grading_error)}"}), 500
+    
+    except Exception as e:
+        logging.error(f"Critical error in grade endpoint: {e}", exc_info=True)
         return jsonify({'error': f"Server error: {str(e)}"}), 500
 
 if __name__ == "__main__":

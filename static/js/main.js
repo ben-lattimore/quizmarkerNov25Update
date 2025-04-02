@@ -15,11 +15,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const jsonOutput = document.getElementById('jsonOutput');
     const downloadJsonBtn = document.getElementById('downloadJsonBtn');
     const newUploadBtn = document.getElementById('newUploadBtn');
+    const gradeAnswersBtn = document.getElementById('gradeAnswersBtn');
+    const gradesContent = document.getElementById('gradesContent');
+    const gradesTab = document.getElementById('grades-tab');
     const errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
     const errorModalBody = document.getElementById('errorModalBody');
+    const gradingModal = new bootstrap.Modal(document.getElementById('gradingModal'));
+    const gradingModalBody = document.getElementById('gradingModalBody');
 
-    // Store the processed results
+    // Store the processed results and grading results
     let processedResults = null;
+    let gradingResults = null;
 
     // Add event listeners for drag and drop functionality
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -476,7 +482,242 @@ document.addEventListener('DOMContentLoaded', function() {
         processButton.disabled = true;
         resultsCard.classList.add('d-none');
         processedResults = null;
+        gradingResults = null;
+        
+        // Reset the grades tab
+        gradesContent.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>Click the "Mark these answers" button to grade handwritten answers against the reference material.
+            </div>
+        `;
     });
+    
+    // Mark these answers button
+    gradeAnswersBtn.addEventListener('click', async function() {
+        // Check if we have results to grade
+        if (!processedResults || processedResults.length === 0) {
+            showError('No results available to grade. Please process images first.');
+            return;
+        }
+        
+        // Filter valid entries (those without errors)
+        const validResults = processedResults.filter(r => !r.error);
+        
+        if (validResults.length === 0) {
+            showError('No valid results to grade. All images had processing errors.');
+            return;
+        }
+        
+        try {
+            // Show the grading modal
+            gradingModalBody.innerHTML = `
+                <div class="text-center p-4">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-3">Grading answers against reference document...</p>
+                    <p class="small text-muted">This may take 30-60 seconds</p>
+                </div>
+            `;
+            gradingModal.show();
+            
+            // Call the grading API
+            const response = await fetch('/grade', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ data: validResults })
+            });
+            
+            // Check for errors
+            if (!response.ok) {
+                let errorMessage = 'Failed to grade answers';
+                
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch (e) {
+                    errorMessage = `Server error (${response.status}): ${response.statusText}`;
+                }
+                
+                gradingModalBody.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h5 class="alert-heading">Error</h5>
+                        <p>${errorMessage}</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Parse the response
+            const gradeData = await response.json();
+            
+            if (!gradeData.success || !gradeData.results) {
+                gradingModalBody.innerHTML = `
+                    <div class="alert alert-danger">
+                        <h5 class="alert-heading">Error</h5>
+                        <p>Invalid response format from server</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Store the grading results
+            gradingResults = gradeData.results;
+            
+            // Display the results in the modal
+            displayGradingResults(gradingResults);
+            
+            // Also update the grades tab
+            updateGradesTab(gradingResults);
+            
+            // Show the grades tab
+            const gradesTabEl = new bootstrap.Tab(gradesTab);
+            gradesTabEl.show();
+            
+        } catch (error) {
+            console.error('Error during grading:', error);
+            
+            gradingModalBody.innerHTML = `
+                <div class="alert alert-danger">
+                    <h5 class="alert-heading">Error</h5>
+                    <p>An error occurred during grading: ${error.message || 'Unknown error'}</p>
+                </div>
+            `;
+        }
+    });
+    
+    // Display grading results in the modal
+    function displayGradingResults(results) {
+        // Create a summary of the grading results
+        let html = `
+            <div class="mb-4">
+                <h5><i class="fas fa-check-circle text-success me-2"></i>Grading Complete</h5>
+                <p>The handwritten answers have been graded against the reference material.</p>
+            </div>
+        `;
+        
+        // If the results have images property, display them one by one
+        if (results.images && Array.isArray(results.images)) {
+            results.images.forEach(image => {
+                const score = image.score || '?';
+                const scoreClass = score >= 7 ? 'success' : (score >= 5 ? 'warning' : 'danger');
+                
+                html += `
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">${image.filename || 'Image'}</h6>
+                            <span class="badge bg-${scoreClass}">Score: ${score}/10</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <strong>Handwritten Content:</strong>
+                                <div class="p-2 border rounded mb-3 bg-dark">
+                                    ${image.handwritten_content || 'No handwritten content found'}
+                                </div>
+                            </div>
+                            <div>
+                                <strong>Feedback:</strong>
+                                <div class="p-2 border rounded bg-dark">
+                                    ${image.feedback || 'No feedback provided'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            // Display overall results if not using the images structure
+            html += `
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Grading Results</h6>
+                    </div>
+                    <div class="card-body">
+                        <pre class="bg-dark text-light p-3 rounded">${JSON.stringify(results, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Update the modal content
+        gradingModalBody.innerHTML = html;
+    }
+    
+    // Update the grades tab with the grading results
+    function updateGradesTab(results) {
+        let html = `
+            <div class="alert alert-success mb-4">
+                <h5 class="alert-heading"><i class="fas fa-award me-2"></i>Grading Results</h5>
+                <p>The handwritten answers have been graded against the reference material.</p>
+            </div>
+        `;
+        
+        // If the results have images property, display them one by one
+        if (results.images && Array.isArray(results.images)) {
+            // Calculate overall score
+            const totalScore = results.images.reduce((sum, image) => sum + (image.score || 0), 0);
+            const averageScore = results.images.length > 0 ? (totalScore / results.images.length).toFixed(1) : 0;
+            const overallScoreClass = averageScore >= 7 ? 'success' : (averageScore >= 5 ? 'warning' : 'danger');
+            
+            html += `
+                <div class="text-center mb-4">
+                    <div class="display-4 mb-2 text-${overallScoreClass}">${averageScore}/10</div>
+                    <p class="lead">Overall Score</p>
+                </div>
+                
+                <div class="row row-cols-1 row-cols-md-2 g-4 mb-4">
+            `;
+            
+            results.images.forEach(image => {
+                const score = image.score || '?';
+                const scoreClass = score >= 7 ? 'success' : (score >= 5 ? 'warning' : 'danger');
+                
+                html += `
+                    <div class="col">
+                        <div class="card h-100">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">${image.filename || 'Image'}</h6>
+                                <span class="badge bg-${scoreClass}">Score: ${score}/10</span>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <strong>Handwritten Content:</strong>
+                                    <div class="p-2 border rounded mb-3 bg-dark small" style="max-height: 150px; overflow-y: auto;">
+                                        ${image.handwritten_content || 'No handwritten content found'}
+                                    </div>
+                                </div>
+                                <div>
+                                    <strong>Feedback:</strong>
+                                    <div class="p-2 border rounded bg-dark small">
+                                        ${image.feedback || 'No feedback provided'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `</div>`;
+        } else {
+            // Display overall results if not using the images structure
+            html += `
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Grading Results</h6>
+                    </div>
+                    <div class="card-body">
+                        <pre class="bg-dark text-light p-3 rounded">${JSON.stringify(results, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Update the grades tab content
+        gradesContent.innerHTML = html;
+    }
 
     // Helper to show errors
     function showError(message) {
