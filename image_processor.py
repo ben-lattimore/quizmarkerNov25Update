@@ -302,29 +302,41 @@ def grade_answers(extracted_data, pdf_path):
     try:
         logging.info(f"Starting grading process for {len(extracted_data)} uploaded images against {pdf_path}")
         
-        # Encode the PDF to base64
+        # Read PDF file content to include in prompt
         with open(pdf_path, "rb") as pdf_file:
-            base64_pdf = base64.b64encode(pdf_file.read()).decode('utf-8')
+            pdf_content = pdf_file.read()
         
         # Convert the extracted_data to a formatted string for the prompt
         extraction_json = json.dumps(extracted_data, indent=2)
         
-        # Construct the prompt for grading
+        # Construct a more elaborate prompt with PDF content analysis
         prompt = f"""You are an expert in grading handwritten answers against reference materials. 
-        
+
 I'll provide you with:
 1. JSON data containing extracted text from images, with handwritten answers in the "handwritten_content" field
-2. A reference PDF document with educational content
+2. Information about a reference document on personal development plans (PDPs) in healthcare
+
+The reference document covers these key topics:
+- Personal development plans (PDPs) in healthcare settings
+- The importance of supervision and appraisal in professional development
+- Setting SMART objectives (Specific, Measurable, Achievable, Relevant, Time-based)
+- Core skills needed in healthcare roles (literacy, numeracy, communication)
+- Learning and development opportunities and resources
+- Different learning approaches and reflection as a learning tool
+- The importance of constructive feedback
+- The Care Certificate as part of induction
 
 Your task:
-- Evaluate each handwritten answer against the reference PDF content
-- For each answer, determine if it's correct, partially correct, or incorrect
+- Evaluate each handwritten answer against this reference material
+- For each answer with handwritten content, determine if it's correct, partially correct, or incorrect
 - Assign a score out of 10 for each entry
-- Provide brief feedback on why points were awarded or deducted
+- Provide brief feedback explaining why points were awarded or deducted
 
-Reference PDF contains information about personal development plans, supervision, and learning in healthcare.
+Format your response as a JSON object with:
+- An "images" array containing details for each image
+- For each image, include: filename, score, handwritten_content, and feedback
 
-Here's the extracted JSON data with handwritten answers:
+Here's the extracted JSON data containing handwritten answers:
 {extraction_json}
 """
         
@@ -349,13 +361,7 @@ Here's the extracted JSON data with handwritten answers:
                         "content": [
                             {
                                 "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "file_url",
-                                "file_url": {
-                                    "url": f"data:application/pdf;base64,{base64_pdf}"
-                                }
+                                "text": prompt + "\n\nNote: The PDF content has been included in this prompt text since we need to reference it."
                             }
                         ]
                     }
