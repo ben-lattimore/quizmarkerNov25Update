@@ -1,0 +1,82 @@
+/* Custom styles for Image Text Extractor app */
+
+/* Upload area styling */
+.upload-area {
+    border: 2px dashed var(--bs-secondary);
+    border-radius: 8px;
+    padding: 2rem;
+    transition: all 0.3s ease;
+    background-color: rgba(33, 37, 41, 0.3);
+}
+
+.upload-area:hover, .upload-area.dragover {
+    border-color: var(--bs-primary);
+    background-color: rgba(13, 110, 253, 0.1);
+}
+
+/* Results container */
+.results-container {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+#jsonOutput {
+    max-height: 500px;
+    overflow-y: auto;
+    font-family: monospace;
+    white-space: pre-wrap;
+}
+
+/* File preview item */
+.file-preview-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.file-preview-item .file-icon {
+    font-size: 1.5rem;
+    margin-right: 0.5rem;
+}
+
+.file-preview-item .file-name {
+    flex-grow: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Result card */
+.result-card {
+    margin-bottom: 1rem;
+}
+
+.result-card .card-header {
+    background-color: rgba(33, 37, 41, 0.8);
+    padding: 0.5rem 1rem;
+}
+
+.result-card .card-body {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Error text */
+.error-text {
+    color: var(--bs-danger);
+}
+
+/* Loading animation */
+@keyframes spinner {
+    to {transform: rotate(360deg);}
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 2rem;
+    height: 2rem;
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: var(--bs-primary);
+    animation: spinner 1s linear infinite;
+}
