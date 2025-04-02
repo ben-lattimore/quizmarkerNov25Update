@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', function() {
         e.stopPropagation();
     }
 
+    // Highlight drop area when dragging over it
     ['dragenter', 'dragover'].forEach(eventName => {
         dropArea.addEventListener(eventName, highlight, false);
     });
@@ -40,14 +41,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function highlight() {
-        dropArea.classList.add('dragover');
+        dropArea.classList.add('highlight');
     }
 
     function unhighlight() {
-        dropArea.classList.remove('dragover');
+        dropArea.classList.remove('highlight');
     }
 
-    // Handle file drops
+    // Handle dropped files
     dropArea.addEventListener('drop', handleDrop, false);
 
     function handleDrop(e) {
@@ -56,47 +57,47 @@ document.addEventListener('DOMContentLoaded', function() {
         handleFiles(files);
     }
 
-    // Open file dialog when browse button is clicked
+    // Handle browse button and file input
     browseButton.addEventListener('click', () => {
         fileInput.click();
     });
 
-    // Handle file selection from the file input
-    fileInput.addEventListener('change', (e) => {
-        handleFiles(e.target.files);
+    fileInput.addEventListener('change', function() {
+        handleFiles(this.files);
     });
 
-    // Process files when selected
     function handleFiles(files) {
         if (files.length === 0) return;
 
-        // Clear the previous file list
-        filePreviewList.innerHTML = '';
-        
-        // Display file list area
+        // Show file list
         fileList.classList.remove('d-none');
-        
-        // Validate and preview files
+        filePreviewList.innerHTML = '';
+
+        // Count valid files
         let validFiles = 0;
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-        const maxSize = 16 * 1024 * 1024; // 16MB
-        
+
+        // Process each file
         Array.from(files).forEach(file => {
             const fileItem = document.createElement('li');
-            fileItem.className = 'list-group-item d-flex justify-content-between align-items-center';
-            
-            // Validate file type
-            if (!allowedTypes.includes(file.type)) {
+            fileItem.className = 'list-group-item d-flex align-items-center justify-content-between';
+
+            // Check file type
+            const isValidType = file.type.startsWith('image/');
+            // Check file size (max 16MB)
+            const isValidSize = file.size <= 16 * 1024 * 1024;
+
+            // Invalid file type
+            if (!isValidType) {
                 fileItem.innerHTML = `
                     <div class="file-preview-item">
                         <i class="fas fa-exclamation-triangle text-warning file-icon"></i>
                         <span class="file-name">${file.name}</span>
-                        <span class="badge bg-warning text-dark">Invalid file type</span>
+                        <span class="badge bg-warning text-dark">Not an image file</span>
                     </div>
                 `;
             } 
-            // Validate file size
-            else if (file.size > maxSize) {
+            // File too large
+            else if (!isValidSize) {
                 fileItem.innerHTML = `
                     <div class="file-preview-item">
                         <i class="fas fa-exclamation-triangle text-warning file-icon"></i>
@@ -135,141 +136,174 @@ document.addEventListener('DOMContentLoaded', function() {
         else return (bytes / 1048576).toFixed(1) + ' MB';
     }
 
-    // Form submission
+    // Form submission - now processes each image individually to avoid timeouts
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        // Create a new FormData object and append files with the correct name
-        const formData = new FormData();
         const files = fileInput.files;
-        
-        // Make sure we're using the correct field name expected by the server
-        // The server expects 'files[]' based on the endpoint code
-        for(let i = 0; i < files.length; i++) {
-            formData.append('files[]', files[i]);
-        }
         
         if (files.length === 0) {
             showError('Please select at least one image file');
             return;
         }
         
-        // Additional warning for multiple files
+        // Additional info for multiple files
         if (files.length > 1) {
-            // Add info about longer processing time for multiple files
-            const warningElem = document.createElement('div');
-            warningElem.id = 'multipleFilesWarning';
-            warningElem.className = 'alert alert-info mb-3';
-            warningElem.innerHTML = `
+            // Add info about sequential processing approach
+            const infoElem = document.createElement('div');
+            infoElem.id = 'multipleFilesInfo';
+            infoElem.className = 'alert alert-info mb-3';
+            infoElem.innerHTML = `
                 <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Processing Multiple Images</h5>
-                <p>You're uploading ${files.length} images. Each image is processed individually, so this might take some time.</p>
+                <p>You've selected ${files.length} images. To prevent API timeouts, each image will be processed one at a time.</p>
                 <ul>
-                    <li>Please wait for processing to complete.</li>
-                    <li>Do not close or refresh the browser.</li>
-                    <li>Each image takes approximately 10-30 seconds to process.</li>
+                    <li>Each image will be uploaded and processed individually</li>
+                    <li>Results will appear as they're completed</li>
+                    <li>Processing all images may take 1-2 minutes</li>
                 </ul>
             `;
             
-            // Remove previous warning if exists
-            const oldWarning = document.getElementById('multipleFilesWarning');
-            if (oldWarning) oldWarning.remove();
+            // Remove previous info if exists
+            const oldInfo = document.getElementById('multipleFilesInfo');
+            if (oldInfo) oldInfo.remove();
             
-            // Add the warning before the processing card
-            processingCard.parentNode.insertBefore(warningElem, processingCard);
+            // Add the info before the processing card
+            processingCard.parentNode.insertBefore(infoElem, processingCard);
         }
         
         // Show processing card and hide upload form
         processingCard.classList.remove('d-none');
         progressBar.style.width = '10%';
-        statusMessage.textContent = 'Uploading images...';
+        statusMessage.textContent = 'Starting image processing...';
         
         try {
-            // Upload files
-            progressBar.style.width = '25%';
+            // Initialize results array for collecting all processed images
+            processedResults = [];
             
-            // Update status with file count info and more details
-            const fileCountMessage = files.length === 1 
-                ? 'Processing 1 image with GPT-4o...'
-                : `Processing ${files.length} images with GPT-4o (this may take a few minutes)...`;
-            statusMessage.textContent = fileCountMessage;
+            // Success/failure counters
+            let successCount = 0;
+            let failCount = 0;
             
-            // Use more robust error handling with increased timeout for multiple images
-            const controller = new AbortController();
-            // Set longer timeout based on number of files (90 seconds per file, min 60 seconds)
-            const timeoutMs = Math.max(60000, files.length * 90000);
-            
-            // Log timeout info for debugging
-            console.log(`Request timeout set to ${timeoutMs/1000} seconds for ${files.length} files`);
-            
-            const timeoutId = setTimeout(() => {
-                controller.abort();
-                console.warn(`Request aborted after ${timeoutMs/1000} seconds timeout`);
-            }, timeoutMs);
-            
-            // Start the request
-            const response = await fetch('/upload', {
-                method: 'POST',
-                body: formData,
-                signal: controller.signal
-            }).finally(() => {
-                clearTimeout(timeoutId);
-            });
-            
-            progressBar.style.width = '75%';
-            
-            // Handle different types of errors
-            if (!response.ok) {
-                let errorMessage = 'Failed to process images';
-                let errorDetails = '';
+            // Process files one by one instead of all at once
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
                 
-                try {
-                    // Attempt to parse error response as JSON
-                    const errorData = await response.json();
-                    errorMessage = errorData.error || errorMessage;
-                    errorDetails = errorData.details || '';
-                } catch (parseError) {
-                    // If response is not valid JSON, use status text
-                    errorMessage = `Server error (${response.status}): ${response.statusText}`;
-                    console.error('Error parsing server response:', parseError);
+                // Skip invalid files
+                if (!file || !file.name || !file.type.startsWith('image/')) {
+                    failCount++;
+                    continue;
                 }
                 
-                throw new Error(`${errorMessage}${errorDetails ? '\n\nDetails: ' + errorDetails : ''}`);
+                // Update progress percentage based on how many files we've processed
+                const progressPct = ((i / files.length) * 90) + 10; // 10-100%
+                progressBar.style.width = `${progressPct}%`;
+                
+                // Update status message with current file
+                statusMessage.textContent = `Processing image ${i+1}/${files.length}: ${file.name}`;
+                
+                try {
+                    // Create a form with just this single file
+                    const singleFileForm = new FormData();
+                    singleFileForm.append('files[]', file);
+                    
+                    // Set a reasonable timeout for a single image (60 seconds)
+                    const controller = new AbortController();
+                    const timeoutMs = 60000;
+                    
+                    const timeoutId = setTimeout(() => {
+                        controller.abort();
+                        console.warn(`Request for ${file.name} aborted after ${timeoutMs/1000} seconds timeout`);
+                    }, timeoutMs);
+                    
+                    // Process just this one image
+                    const response = await fetch('/upload', {
+                        method: 'POST',
+                        body: singleFileForm,
+                        signal: controller.signal
+                    }).finally(() => {
+                        clearTimeout(timeoutId);
+                    });
+                    
+                    // Handle errors for this specific file
+                    if (!response.ok) {
+                        let errorMessage = `Failed to process image: ${file.name}`;
+                        
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.error || errorMessage;
+                        } catch (e) {
+                            // If not JSON, use status text
+                            errorMessage = `Server error (${response.status}): ${response.statusText}`;
+                        }
+                        
+                        // Add error result for this file
+                        processedResults.push({
+                            image_id: i + 1,
+                            filename: file.name,
+                            error: errorMessage
+                        });
+                        
+                        failCount++;
+                        console.error(`Error processing ${file.name}:`, errorMessage);
+                        continue; // Skip to next file
+                    }
+                    
+                    // Parse the response
+                    const data = await response.json();
+                    
+                    // Get the results array from the response
+                    if (data && data.results && Array.isArray(data.results) && data.results.length > 0) {
+                        // Add this file's result to our collection
+                        const result = data.results[0]; // There should be only one result since we sent one file
+                        
+                        // Make sure the filename is correct (in case the server changed it)
+                        result.filename = file.name;
+                        result.image_id = i + 1;
+                        
+                        processedResults.push(result);
+                        successCount++;
+                        
+                        // Show the current results as they come in
+                        displayResults(processedResults);
+                        
+                        // Show results card so user can see progress
+                        resultsCard.classList.remove('d-none');
+                    } else {
+                        // Handle invalid response format
+                        processedResults.push({
+                            image_id: i + 1,
+                            filename: file.name,
+                            error: 'Invalid response from server'
+                        });
+                        failCount++;
+                    }
+                } catch (error) {
+                    // Handle any other errors for this file
+                    console.error(`Error processing ${file.name}:`, error);
+                    
+                    processedResults.push({
+                        image_id: i + 1,
+                        filename: file.name,
+                        error: error.message || 'Failed to process image'
+                    });
+                    
+                    failCount++;
+                }
+                
+                // Short delay between processing each file to avoid API rate limiting
+                if (i < files.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
             }
             
-            // Safely parse the JSON response with error handling
-            let data;
-            try {
-                data = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response format from server');
-            }
-            
-            // Validate data structure
-            if (!data || !data.results || !Array.isArray(data.results)) {
-                throw new Error('Server returned an invalid response format');
-            }
-            
-            // Handle successful processing
+            // All files processed
             progressBar.style.width = '100%';
-            statusMessage.textContent = 'Processing complete!';
+            statusMessage.textContent = `Processing complete! Success: ${successCount}, Failed: ${failCount}`;
             
-            // Check if there were any invalid files
-            if (data.invalid_files && data.invalid_files.length > 0) {
-                console.warn('Some files were invalid:', data.invalid_files);
-            }
-            
-            // Store results and display them
-            processedResults = data.results;
+            // Display final results
             displayResults(processedResults);
-            
-            // Show results card and hide processing after short delay
-            setTimeout(() => {
-                processingCard.classList.add('d-none');
-                resultsCard.classList.remove('d-none');
-            }, 500);
-            
         } catch (error) {
-            console.error('Error:', error);
+            console.error('Error in overall processing:', error);
             progressBar.className = 'progress-bar bg-danger';
             
             // Provide more helpful error messages based on error type
