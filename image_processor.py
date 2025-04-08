@@ -302,29 +302,44 @@ def grade_answers(extracted_data, pdf_path):
     try:
         logging.info(f"Starting grading process for {len(extracted_data)} uploaded images against {pdf_path}")
         
-        # Read PDF file content to include in prompt
-        with open(pdf_path, "rb") as pdf_file:
-            pdf_content = pdf_file.read()
+        import PyPDF2
+        
+        # Extract text content from the PDF to use as reference material
+        pdf_text = ""
+        try:
+            with open(pdf_path, "rb") as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    pdf_text += page.extract_text() + "\n\n"
+                    
+            # Trim if too long to fit in prompt
+            if len(pdf_text) > 10000:
+                pdf_text = pdf_text[:10000] + "... (content truncated)"
+                
+            logging.info(f"Successfully extracted {len(pdf_text)} characters from PDF")
+        except Exception as pdf_error:
+            logging.error(f"Error extracting PDF text: {pdf_error}")
+            pdf_text = f"[Error extracting PDF content: {str(pdf_error)}]"
         
         # Convert the extracted_data to a formatted string for the prompt
         extraction_json = json.dumps(extracted_data, indent=2)
         
-        # Construct a more elaborate prompt with PDF content analysis
+        # Determine which standard we're grading against
+        standard_num = os.path.basename(pdf_path).replace("Standard-", "").replace(".pdf", "")
+        logging.info(f"Grading against Standard {standard_num}")
+        
+        # Construct a prompt based on the specific standard
         prompt = f"""You are an expert in grading handwritten answers against reference materials. 
 
 I'll provide you with:
 1. JSON data containing extracted text from images, with handwritten answers in the "handwritten_content" field
-2. Information about a reference document on personal development plans (PDPs) in healthcare
+2. The content from Standard {standard_num} from The Care Certificate (included below)
 
-The reference document covers these key topics:
-- Personal development plans (PDPs) in healthcare settings
-- The importance of supervision and appraisal in professional development
-- Setting SMART objectives (Specific, Measurable, Achievable, Relevant, Time-based)
-- Core skills needed in healthcare roles (literacy, numeracy, communication)
-- Learning and development opportunities and resources
-- Different learning approaches and reflection as a learning tool
-- The importance of constructive feedback
-- The Care Certificate as part of induction
+You are grading answers specifically against the content from Standard {standard_num} only, not any other standard.
+
+REFERENCE MATERIAL FROM STANDARD {standard_num}:
+{pdf_text}
 
 Your task:
 - Evaluate each handwritten answer against this reference material

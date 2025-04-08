@@ -206,10 +206,13 @@ def grade_answers_route():
         
         # Get the standard ID (default to 2 if not provided for backward compatibility)
         standard_id = request.json.get('standard_id', 2)
+        logging.info(f"Request JSON: {request.json}")
+        logging.info(f"Selected standard_id: {standard_id}")
         
         # Determine the PDF path
         pdf_filename = f"Standard-{standard_id}.pdf"
         pdf_path = os.path.join(REFERENCE_PDF_DIR, pdf_filename)
+        logging.info(f"Using PDF path: {pdf_path}")
         
         # Filter out any failed extractions
         valid_extractions = [item for item in extracted_data if "error" not in item]
