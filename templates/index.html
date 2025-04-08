@@ -13,17 +13,40 @@
 </head>
 <body>
     <div class="container py-4">
-        <header class="mb-5 text-center">
-            <h1 class="display-4">Image Text Extractor</h1>
-            <p class="lead">Upload images to extract text using GPT-4o and convert to structured JSON</p>
-            <div class="alert alert-info mx-auto" style="max-width: 750px;">
-                <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Important Information</h5>
-                <p>This application uses OpenAI's GPT-4o vision capabilities to extract text from images.</p>
-                <ul class="mb-0 text-start">
-                    <li>Each image is processed individually using the OpenAI API.</li>
-                    <li>Processing multiple images at once may take longer due to API rate limits.</li>
-                    <li>For best results, upload 1-3 clear images at a time.</li>
-                </ul>
+        <header class="mb-5">
+            <nav class="navbar navbar-expand-lg navbar-dark bg-dark rounded mb-4">
+                <div class="container-fluid">
+                    <a class="navbar-brand" href="{{ url_for('index') }}">
+                        <i class="fas fa-file-alt me-2"></i>Image Text Extractor
+                    </a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse" id="navbarNav">
+                        <ul class="navbar-nav">
+                            <li class="nav-item">
+                                <a class="nav-link active" href="{{ url_for('index') }}">Home</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="{{ url_for('list_quizzes') }}">Quiz Submissions</a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </nav>
+            
+            <div class="text-center">
+                <h1 class="display-4">Image Text Extractor</h1>
+                <p class="lead">Upload images to extract text using GPT-4o and convert to structured JSON</p>
+                <div class="alert alert-info mx-auto" style="max-width: 750px;">
+                    <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Important Information</h5>
+                    <p>This application uses OpenAI's GPT-4o vision capabilities to extract text from images.</p>
+                    <ul class="mb-0 text-start">
+                        <li>Each image is processed individually using the OpenAI API.</li>
+                        <li>Processing multiple images at once may take longer due to API rate limits.</li>
+                        <li>For best results, upload 1-3 clear images at a time.</li>
+                    </ul>
+                </div>
             </div>
         </header>
 
@@ -80,6 +103,12 @@
                                 <select class="form-select form-select-sm" id="standardSelector" disabled>
                                     <option value="" selected disabled>Select a standard...</option>
                                 </select>
+                            </div>
+                            <div class="form-group me-2">
+                                <input type="text" class="form-control form-control-sm" id="studentNameInput" placeholder="Student Name" required>
+                            </div>
+                            <div class="form-group me-2">
+                                <input type="text" class="form-control form-control-sm" id="quizTitleInput" placeholder="Quiz Title (optional)">
                             </div>
                             <button class="btn btn-sm btn-success me-2" id="gradeAnswersBtn">
                                 <i class="fas fa-check-circle me-1"></i>Mark these answers

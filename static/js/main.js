@@ -562,6 +562,16 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Check if student name is provided
+        const studentName = document.getElementById('studentNameInput').value.trim();
+        if (!studentName) {
+            showError('Please enter a student name.');
+            return;
+        }
+        
+        // Get the quiz title (optional)
+        const quizTitle = document.getElementById('quizTitleInput').value.trim();
+        
         try {
             // Show the grading modal with the selected standard
             gradingModalBody.innerHTML = `
@@ -569,13 +579,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="spinner-border" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <p class="mt-3">Grading answers against Standard ${selectedStandardId}...</p>
+                    <p class="mt-3">Grading answers for ${studentName} against Standard ${selectedStandardId}...</p>
                     <p class="small text-muted">This may take 30-60 seconds</p>
                 </div>
             `;
             gradingModal.show();
             
-            // Call the grading API with the selected standard
+            // Call the grading API with the selected standard and student info
             const response = await fetch('/grade', {
                 method: 'POST',
                 headers: {
@@ -583,7 +593,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 body: JSON.stringify({ 
                     data: validResults,
-                    standard_id: parseInt(selectedStandardId)
+                    standard_id: parseInt(selectedStandardId),
+                    student_name: studentName,
+                    quiz_title: quizTitle
                 })
             });
             

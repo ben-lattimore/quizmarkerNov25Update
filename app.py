@@ -3,8 +3,10 @@ import logging
 import uuid
 import time
 import json
+from datetime import datetime
 from flask import Flask, render_template, request, jsonify, session
 from werkzeug.utils import secure_filename
+from flask_sqlalchemy import SQLAlchemy
 from image_processor import process_single_image, process_images, grade_answers
 
 # Configure logging
@@ -13,6 +15,31 @@ logging.basicConfig(level=logging.DEBUG)
 # Create the Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", str(uuid.uuid4()))
+
+# Configure the database connection
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    logging.info(f"Using database URL: {DATABASE_URL}")
+    app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_recycle": 300,
+        "pool_pre_ping": True,
+    }
+else:
+    logging.error("DATABASE_URL environment variable is not set")
+    # Fallback to SQLite for development (not recommended for production)
+    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///quiz_app.db"
+    
+db = SQLAlchemy(app)
+
+# Import models after database initialization to avoid circular imports
+from models import Student, Quiz, QuizSubmission, QuizQuestion
+
+# Create all database tables
+with app.app_context():
+    db.create_all()
+    logging.info("Database tables created or verified")
 
 # Configure uploads
 UPLOAD_FOLDER = '/tmp/image_uploads'
@@ -69,6 +96,68 @@ def get_standards():
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/quizzes')
+def list_quizzes():
+    """List all quiz submissions in the database"""
+    try:
+        # Get all quiz submissions, ordered by submission date (newest first)
+        submissions = QuizSubmission.query.order_by(QuizSubmission.submission_date.desc()).all()
+        
+        # Format the data for rendering
+        quiz_data = []
+        for submission in submissions:
+            quiz_data.append({
+                'id': submission.id,
+                'quiz_title': submission.quiz.title,
+                'standard_id': submission.quiz.standard_id,
+                'student_name': submission.student.name,
+                'submission_date': submission.submission_date.strftime('%Y-%m-%d %H:%M:%S'),
+                'total_mark': submission.total_mark,
+                'question_count': len(submission.questions)
+            })
+        
+        return render_template('quizzes.html', quizzes=quiz_data)
+    except Exception as e:
+        logging.error(f"Error listing quizzes: {e}")
+        return render_template('error.html', error=f"Error listing quizzes: {str(e)}")
+
+@app.route('/quiz/<int:quiz_id>')
+def view_quiz(quiz_id):
+    """View a specific quiz submission"""
+    try:
+        # Get the quiz submission
+        submission = QuizSubmission.query.get_or_404(quiz_id)
+        
+        # Get questions for this submission
+        questions = submission.questions
+        
+        # Format the data for rendering
+        quiz_data = {
+            'id': submission.id,
+            'quiz_title': submission.quiz.title,
+            'standard_id': submission.quiz.standard_id,
+            'student_name': submission.student.name,
+            'submission_date': submission.submission_date.strftime('%Y-%m-%d %H:%M:%S'),
+            'total_mark': submission.total_mark,
+            'raw_data': submission.get_raw_data(),
+            'questions': []
+        }
+        
+        for q in questions:
+            quiz_data['questions'].append({
+                'question_number': q.question_number,
+                'question_text': q.question_text,
+                'student_answer': q.student_answer,
+                'correct_answer': q.correct_answer,
+                'mark_received': q.mark_received,
+                'feedback': q.feedback
+            })
+        
+        return render_template('quiz_detail.html', quiz=quiz_data)
+    except Exception as e:
+        logging.error(f"Error viewing quiz {quiz_id}: {e}")
+        return render_template('error.html', error=f"Error viewing quiz {quiz_id}: {str(e)}")
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
@@ -192,6 +281,8 @@ def grade_answers_route():
     Expects a JSON payload with:
     - 'data' field containing the extracted text results
     - 'standard_id' field specifying which standard PDF to use for grading
+    - 'student_name' field containing the student's name
+    - 'quiz_title' field containing a title for the quiz (optional)
     """
     try:
         # Verify we have data in the request
@@ -206,8 +297,11 @@ def grade_answers_route():
         
         # Get the standard ID (default to 2 if not provided for backward compatibility)
         standard_id = request.json.get('standard_id', 2)
+        student_name = request.json.get('student_name', 'Unknown Student')
+        quiz_title = request.json.get('quiz_title', f'Standard {standard_id} Quiz')
+        
         logging.info(f"Request JSON: {request.json}")
-        logging.info(f"Selected standard_id: {standard_id}")
+        logging.info(f"Selected standard_id: {standard_id}, Student: {student_name}")
         
         # Determine the PDF path
         pdf_filename = f"Standard-{standard_id}.pdf"
@@ -234,10 +328,73 @@ def grade_answers_route():
             
             logging.info(f"Graded answers in {grading_time:.2f} seconds")
             
+            # Store the quiz results in the database
+            try:
+                # Find or create the student
+                student = Student.query.filter_by(name=student_name).first()
+                if not student:
+                    student = Student(name=student_name)
+                    db.session.add(student)
+                    logging.info(f"Created new student: {student_name}")
+                
+                # Find or create the quiz
+                quiz = Quiz.query.filter_by(title=quiz_title, standard_id=standard_id).first()
+                if not quiz:
+                    quiz = Quiz(title=quiz_title, standard_id=standard_id)
+                    db.session.add(quiz)
+                    logging.info(f"Created new quiz: {quiz_title} (Standard {standard_id})")
+                
+                # Create the quiz submission
+                quiz_submission = QuizSubmission(
+                    quiz=quiz,
+                    student=student,
+                    submission_date=datetime.utcnow()
+                )
+                
+                # Store the raw extracted data
+                quiz_submission.set_raw_data(extracted_data)
+                
+                # Calculate total mark and add questions
+                total_mark = 0
+                
+                for result in grading_results.get('results', []):
+                    # Extract the data for each question
+                    question_data = result.get('question_data', {})
+                    
+                    # Create a new question record
+                    question = QuizQuestion(
+                        submission=quiz_submission,
+                        question_number=question_data.get('question_number', 0),
+                        question_text=question_data.get('title', ''),
+                        student_answer=question_data.get('student_response', ''),
+                        correct_answer=question_data.get('reference_answer', ''),
+                        mark_received=result.get('grade', {}).get('score', 0),
+                        feedback=result.get('grade', {}).get('feedback', '')
+                    )
+                    db.session.add(question)
+                    
+                    # Add to total mark
+                    total_mark += question.mark_received
+                
+                # Update the total mark on the submission
+                quiz_submission.total_mark = total_mark
+                db.session.add(quiz_submission)
+                
+                # Commit the transaction
+                db.session.commit()
+                logging.info(f"Saved quiz submission to database: ID {quiz_submission.id}, Total Mark: {total_mark}")
+                
+            except Exception as db_error:
+                db.session.rollback()
+                logging.error(f"Database error: {db_error}", exc_info=True)
+                # Continue with the response even if database storage fails
+                logging.warning("Continuing without database storage due to error")
+            
             # Return the grading results
             return jsonify({
                 'success': True,
                 'standard_id': standard_id,
+                'student_name': student_name,
                 'results': grading_results
             })
             
