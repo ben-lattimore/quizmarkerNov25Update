@@ -75,7 +75,12 @@
                 <div class="card d-none" id="resultsCard">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="card-title mb-0"><i class="fas fa-file-alt me-2"></i>Results</h5>
-                        <div>
+                        <div class="d-flex align-items-center">
+                            <div class="form-group me-2">
+                                <select class="form-select form-select-sm" id="standardSelector" disabled>
+                                    <option value="" selected disabled>Select a standard...</option>
+                                </select>
+                            </div>
                             <button class="btn btn-sm btn-success me-2" id="gradeAnswersBtn">
                                 <i class="fas fa-check-circle me-1"></i>Mark these answers
                             </button>

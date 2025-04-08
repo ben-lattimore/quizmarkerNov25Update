@@ -22,12 +22,49 @@ if not os.path.exists(UPLOAD_FOLDER):
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload size
 
-# Path to the reference PDF for grading
-REFERENCE_PDF_PATH = "attached_assets/Standard-2.pdf"
+# Path to the reference PDFs for grading
+REFERENCE_PDF_DIR = "attached_assets"
 
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/standards')
+def get_standards():
+    """
+    Return a list of available standards in the attached_assets directory
+    """
+    try:
+        available_standards = []
+        # Look for files matching the pattern "Standard-*.pdf"
+        for file in os.listdir(REFERENCE_PDF_DIR):
+            if file.startswith("Standard-") and file.endswith(".pdf"):
+                # Extract the standard number from the filename
+                standard_num = file.replace("Standard-", "").replace(".pdf", "")
+                try:
+                    standard_num = int(standard_num)
+                    available_standards.append({
+                        "id": standard_num,
+                        "name": f"Standard {standard_num}",
+                        "file": file
+                    })
+                except ValueError:
+                    # Skip files if the numbering isn't an integer
+                    continue
+        
+        # Sort standards by their number
+        available_standards.sort(key=lambda s: s["id"])
+        
+        return jsonify({
+            "success": True,
+            "standards": available_standards
+        })
+    except Exception as e:
+        logging.error(f"Error getting standards: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Failed to get standards"
+        }), 500
 
 @app.route('/')
 def index():
@@ -150,9 +187,11 @@ def upload_files():
 @app.route('/grade', methods=['POST'])
 def grade_answers_route():
     """
-    Grade handwritten answers against the reference PDF
+    Grade handwritten answers against the selected reference PDF
     
-    Expects a JSON payload with the 'data' field containing the extracted text results
+    Expects a JSON payload with:
+    - 'data' field containing the extracted text results
+    - 'standard_id' field specifying which standard PDF to use for grading
     """
     try:
         # Verify we have data in the request
@@ -165,22 +204,29 @@ def grade_answers_route():
         if not extracted_data or not isinstance(extracted_data, list):
             return jsonify({'error': 'Invalid data format. Expected a list of extraction results.'}), 400
         
+        # Get the standard ID (default to 2 if not provided for backward compatibility)
+        standard_id = request.json.get('standard_id', 2)
+        
+        # Determine the PDF path
+        pdf_filename = f"Standard-{standard_id}.pdf"
+        pdf_path = os.path.join(REFERENCE_PDF_DIR, pdf_filename)
+        
         # Filter out any failed extractions
         valid_extractions = [item for item in extracted_data if "error" not in item]
         
         if not valid_extractions:
             return jsonify({'error': 'No valid extractions to grade.'}), 400
         
-        logging.info(f"Grading {len(valid_extractions)} valid extractions")
+        logging.info(f"Grading {len(valid_extractions)} valid extractions against Standard {standard_id}")
         
         # Check if the reference PDF exists
-        if not os.path.exists(REFERENCE_PDF_PATH):
-            return jsonify({'error': 'Reference PDF not found.'}), 500
+        if not os.path.exists(pdf_path):
+            return jsonify({'error': f'Reference PDF for Standard {standard_id} not found.'}), 500
         
         # Grade the answers
         try:
             grading_start = time.time()
-            grading_results = grade_answers(valid_extractions, REFERENCE_PDF_PATH)
+            grading_results = grade_answers(valid_extractions, pdf_path)
             grading_time = time.time() - grading_start
             
             logging.info(f"Graded answers in {grading_time:.2f} seconds")
@@ -188,6 +234,7 @@ def grade_answers_route():
             # Return the grading results
             return jsonify({
                 'success': True,
+                'standard_id': standard_id,
                 'results': grading_results
             })
             

@@ -16,6 +16,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const downloadJsonBtn = document.getElementById('downloadJsonBtn');
     const newUploadBtn = document.getElementById('newUploadBtn');
     const gradeAnswersBtn = document.getElementById('gradeAnswersBtn');
+    const standardSelector = document.getElementById('standardSelector');
     const gradesContent = document.getElementById('gradesContent');
     const gradesTab = document.getElementById('grades-tab');
     const errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
@@ -26,6 +27,52 @@ document.addEventListener('DOMContentLoaded', function() {
     // Store the processed results and grading results
     let processedResults = null;
     let gradingResults = null;
+    let availableStandards = [];
+
+    // Load available standards when the page loads
+    async function loadStandards() {
+        try {
+            const response = await fetch('/standards');
+            if (!response.ok) {
+                console.error('Failed to load standards');
+                return;
+            }
+            
+            const data = await response.json();
+            if (data.success && Array.isArray(data.standards)) {
+                availableStandards = data.standards;
+                
+                // Clear and populate the standards dropdown
+                standardSelector.innerHTML = '';
+                
+                // Add a default instruction option
+                const defaultOption = document.createElement('option');
+                defaultOption.value = '';
+                defaultOption.textContent = 'Select a standard...';
+                defaultOption.disabled = true;
+                defaultOption.selected = true;
+                standardSelector.appendChild(defaultOption);
+                
+                // Add each standard as an option
+                availableStandards.forEach(standard => {
+                    const option = document.createElement('option');
+                    option.value = standard.id;
+                    option.textContent = `Standard ${standard.id}`;
+                    standardSelector.appendChild(option);
+                });
+                
+                // If we have standards, enable the dropdown
+                if (availableStandards.length > 0) {
+                    standardSelector.disabled = false;
+                }
+            }
+        } catch (error) {
+            console.error('Error loading standards:', error);
+        }
+    }
+    
+    // Load standards when page loads
+    loadStandards();
 
     // Add event listeners for drag and drop functionality
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
@@ -508,26 +555,36 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
+        // Check if a standard is selected
+        const selectedStandardId = standardSelector.value;
+        if (!selectedStandardId) {
+            showError('Please select a standard to grade against.');
+            return;
+        }
+        
         try {
-            // Show the grading modal
+            // Show the grading modal with the selected standard
             gradingModalBody.innerHTML = `
                 <div class="text-center p-4">
                     <div class="spinner-border" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <p class="mt-3">Grading answers against reference document...</p>
+                    <p class="mt-3">Grading answers against Standard ${selectedStandardId}...</p>
                     <p class="small text-muted">This may take 30-60 seconds</p>
                 </div>
             `;
             gradingModal.show();
             
-            // Call the grading API
+            // Call the grading API with the selected standard
             const response = await fetch('/grade', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ data: validResults })
+                body: JSON.stringify({ 
+                    data: validResults,
+                    standard_id: parseInt(selectedStandardId)
+                })
             });
             
             // Check for errors
@@ -647,10 +704,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Update the grades tab with the grading results
     function updateGradesTab(results) {
+        const selectedStandardId = standardSelector.value;
         let html = `
             <div class="alert alert-success mb-4">
                 <h5 class="alert-heading"><i class="fas fa-award me-2"></i>Grading Results</h5>
-                <p>The handwritten answers have been graded against the reference material.</p>
+                <p>The handwritten answers have been graded against Standard ${selectedStandardId}.</p>
             </div>
         `;
         
