@@ -16,6 +16,15 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", str(uuid.uuid4()))
 
+# Add custom filters for JSON handling
+@app.template_filter('from_json')
+def from_json(value):
+    """Convert a JSON string to Python objects"""
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return {}
+
 # Configure the database connection
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
@@ -101,25 +110,47 @@ def index():
 def list_quizzes():
     """List all quiz submissions in the database"""
     try:
-        # Get all quiz submissions, ordered by submission date (newest first)
-        submissions = QuizSubmission.query.order_by(QuizSubmission.submission_date.desc()).all()
+        # Get quiz counts to ensure consistency
+        submission_count = QuizSubmission.query.count()
+        logging.info(f"Found {submission_count} submissions in the database")
+        
+        # Get all quiz submissions directly from database with a join query for better performance
+        # This also helps diagnose issues with relationship loading
+        submissions = db.session.query(
+            QuizSubmission, Quiz, Student
+        ).join(
+            Quiz, QuizSubmission.quiz_id == Quiz.id
+        ).join(
+            Student, QuizSubmission.student_id == Student.id
+        ).order_by(
+            QuizSubmission.submission_date.desc()
+        ).all()
+        
+        logging.info(f"Found {len(submissions)} submissions after join query")
         
         # Format the data for rendering
         quiz_data = []
-        for submission in submissions:
+        for submission, quiz, student in submissions:
+            # Count questions for this submission
+            question_count = QuizQuestion.query.filter_by(quiz_submission_id=submission.id).count()
+            
+            # Add to the list for rendering
             quiz_data.append({
                 'id': submission.id,
-                'quiz_title': submission.quiz.title,
-                'standard_id': submission.quiz.standard_id,
-                'student_name': submission.student.name,
+                'quiz_title': quiz.title,
+                'standard_id': quiz.standard_id,
+                'student_name': student.name,
                 'submission_date': submission.submission_date.strftime('%Y-%m-%d %H:%M:%S'),
                 'total_mark': submission.total_mark,
-                'question_count': len(submission.questions)
+                'question_count': question_count
             })
+            
+            logging.debug(f"Added quiz submission: ID={submission.id}, Title={quiz.title}, Mark={submission.total_mark}")
         
+        logging.info(f"Displaying {len(quiz_data)} quiz submissions")
         return render_template('quizzes.html', quizzes=quiz_data)
     except Exception as e:
-        logging.error(f"Error listing quizzes: {e}")
+        logging.error(f"Error listing quizzes: {e}", exc_info=True)
         return render_template('error.html', error=f"Error listing quizzes: {str(e)}")
 
 @app.route('/quiz/<int:quiz_id>')

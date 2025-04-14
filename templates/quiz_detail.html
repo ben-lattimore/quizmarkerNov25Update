@@ -151,33 +151,39 @@
                                         <div class="col-md-6">
                                             <div class="mb-3">
                                                 <h6 class="fw-bold">Student's Answer:</h6>
-                                                {% if question.student_answer.startswith('{') or question.student_answer.startswith('[') %}
-                                                    <!-- Render structured data as a formatted list -->
-                                                    <div class="structured-data">
-                                                        {% for key, value in question.student_answer|tojson|from_json|dictsort %}
-                                                            <div class="mb-2">
-                                                                <strong>{{ key }}:</strong> 
-                                                                {% if value is mapping %}
-                                                                    <ul class="mb-0">
-                                                                        {% for subkey, subvalue in value.items() %}
-                                                                            <li><strong>{{ subkey }}:</strong> {{ subvalue }}</li>
-                                                                        {% endfor %}
-                                                                    </ul>
-                                                                {% else %}
-                                                                    {{ value }}
-                                                                {% endif %}
+                                                <p>
+                                                    {% if question.student_answer and question.student_answer != 'null' %}
+                                                        {% if question.student_answer.startswith('{') or question.student_answer.startswith('[') %}
+                                                            <!-- Try to render as JSON -->
+                                                            <div class="structured-data">
+                                                                <pre><code>{{ question.student_answer }}</code></pre>
                                                             </div>
-                                                        {% endfor %}
-                                                    </div>
-                                                {% else %}
-                                                    <p>{{ question.student_answer }}</p>
-                                                {% endif %}
+                                                        {% else %}
+                                                            {{ question.student_answer }}
+                                                        {% endif %}
+                                                    {% else %}
+                                                        <em class="text-muted">No answer provided</em>
+                                                    {% endif %}
+                                                </p>
                                             </div>
                                         </div>
                                         <div class="col-md-6">
                                             <div class="mb-3">
                                                 <h6 class="fw-bold">Reference Answer:</h6>
-                                                <p>{{ question.correct_answer }}</p>
+                                                <p>
+                                                    {% if question.correct_answer and question.correct_answer != 'null' %}
+                                                        {% if question.correct_answer.startswith('{') or question.correct_answer.startswith('[') %}
+                                                            <!-- Try to render as JSON -->
+                                                            <div class="structured-data">
+                                                                <pre><code>{{ question.correct_answer }}</code></pre>
+                                                            </div>
+                                                        {% else %}
+                                                            {{ question.correct_answer }}
+                                                        {% endif %}
+                                                    {% else %}
+                                                        <em class="text-muted">No reference answer available</em>
+                                                    {% endif %}
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
