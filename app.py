@@ -501,5 +501,31 @@ def grade_answers_route():
         logging.error(f"Critical error in grade endpoint: {e}", exc_info=True)
         return jsonify({'error': f"Server error: {str(e)}"}), 500
 
+@app.route('/admin/clean_database', methods=['GET', 'POST'])
+def clean_database():
+    """Admin route to clean the database by removing all quiz submissions"""
+    if request.method == 'GET':
+        # Show confirmation page
+        return render_template('clean_database.html')
+    elif request.method == 'POST':
+        try:
+            # Delete all quiz questions
+            QuizQuestion.query.delete()
+            # Delete all quiz submissions
+            QuizSubmission.query.delete()
+            # Optionally, you can also clean quizzes and students
+            Quiz.query.delete()
+            Student.query.delete()
+            
+            # Commit the changes
+            db.session.commit()
+            
+            logging.info("Database cleaned successfully")
+            return render_template('clean_database.html', success=True)
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error cleaning database: {e}", exc_info=True)
+            return render_template('clean_database.html', error=str(e))
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
