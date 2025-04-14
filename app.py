@@ -326,6 +326,8 @@ def grade_answers_route():
             grading_results = grade_answers(valid_extractions, pdf_path)
             grading_time = time.time() - grading_start
             
+            # Log more details about the grading results structure
+            logging.debug(f"Grading results structure: {json.dumps(grading_results, indent=2)}")
             logging.info(f"Graded answers in {grading_time:.2f} seconds")
             
             # Store the quiz results in the database
@@ -356,25 +358,70 @@ def grade_answers_route():
                 
                 # Calculate total mark and add questions
                 total_mark = 0
+                questions_added = 0
                 
-                for result in grading_results.get('results', []):
-                    # Extract the data for each question
-                    question_data = result.get('question_data', {})
+                # Check different possible structures of the grading results
+                if 'images' in grading_results and isinstance(grading_results['images'], list):
+                    # If the structure includes an 'images' array
+                    for image in grading_results['images']:
+                        # Get the score for this image
+                        score = image.get('score', 0)
+                        total_mark += score
+                        
+                        # Create a question record for this image
+                        question = QuizQuestion(
+                            submission=quiz_submission,
+                            question_number=questions_added + 1,
+                            question_text=f"Image #{questions_added + 1}",
+                            student_answer=image.get('handwritten_content', ''),
+                            correct_answer='',  # No specific correct answer
+                            mark_received=score,
+                            feedback=image.get('feedback', '')
+                        )
+                        db.session.add(question)
+                        questions_added += 1
+                        
+                elif 'results' in grading_results and isinstance(grading_results['results'], list):
+                    # Original structure with 'results' array
+                    for result in grading_results['results']:
+                        # Extract the data for each question
+                        question_data = result.get('question_data', {})
+                        
+                        # Create a new question record
+                        question = QuizQuestion(
+                            submission=quiz_submission,
+                            question_number=question_data.get('question_number', questions_added + 1),
+                            question_text=question_data.get('title', ''),
+                            student_answer=question_data.get('student_response', ''),
+                            correct_answer=question_data.get('reference_answer', ''),
+                            mark_received=result.get('grade', {}).get('score', 0),
+                            feedback=result.get('grade', {}).get('feedback', '')
+                        )
+                        db.session.add(question)
+                        
+                        # Add to total mark
+                        total_mark += question.mark_received
+                        questions_added += 1
+                
+                # If no questions were processed but there's an overall score
+                if questions_added == 0 and 'overall_score' in grading_results:
+                    total_mark = grading_results['overall_score']
                     
-                    # Create a new question record
+                    # Create a single question with the overall feedback
                     question = QuizQuestion(
                         submission=quiz_submission,
-                        question_number=question_data.get('question_number', 0),
-                        question_text=question_data.get('title', ''),
-                        student_answer=question_data.get('student_response', ''),
-                        correct_answer=question_data.get('reference_answer', ''),
-                        mark_received=result.get('grade', {}).get('score', 0),
-                        feedback=result.get('grade', {}).get('feedback', '')
+                        question_number=1,
+                        question_text="Overall Assessment",
+                        student_answer="",
+                        correct_answer="",
+                        mark_received=total_mark,
+                        feedback=grading_results.get('feedback', '')
                     )
                     db.session.add(question)
-                    
-                    # Add to total mark
-                    total_mark += question.mark_received
+                    questions_added += 1
+                
+                # Log information about questions processed
+                logging.info(f"Processed {questions_added} questions with total mark: {total_mark}")
                 
                 # Update the total mark on the submission
                 quiz_submission.total_mark = total_mark

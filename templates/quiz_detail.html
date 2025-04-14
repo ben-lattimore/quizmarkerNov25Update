@@ -83,7 +83,13 @@
                                 <table class="table table-borderless">
                                     <tr>
                                         <th style="width: 150px;">Quiz Title:</th>
-                                        <td>{{ quiz.quiz_title }}</td>
+                                        <td>
+                                            {% if quiz.quiz_title %}
+                                                {{ quiz.quiz_title }}
+                                            {% else %}
+                                                Standard {{ quiz.standard_id }} Quiz
+                                            {% endif %}
+                                        </td>
                                     </tr>
                                     <tr>
                                         <th>Student Name:</th>
@@ -103,7 +109,13 @@
                                 <div class="card bg-dark">
                                     <div class="card-body">
                                         <h5 class="card-title">Total Mark</h5>
-                                        <p class="display-4">{{ quiz.total_mark }}</p>
+                                        <p class="display-4">
+                                            {% if quiz.total_mark is not none %}
+                                                {{ "%.1f"|format(quiz.total_mark) }}
+                                            {% else %}
+                                                -
+                                            {% endif %}
+                                        </p>
                                         <p class="text-muted">{{ quiz.questions|length }} questions</p>
                                     </div>
                                 </div>
@@ -127,7 +139,7 @@
                                     <h5 class="card-title mb-0">
                                         Question {{ question.question_number }}
                                     </h5>
-                                    <span class="badge bg-primary">Mark: {{ question.mark_received }}</span>
+                                    <span class="badge bg-primary">Mark: {{ "%.1f"|format(question.mark_received) }}</span>
                                 </div>
                                 <div class="card-body">
                                     <div class="mb-3">

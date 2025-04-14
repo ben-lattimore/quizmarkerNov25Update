@@ -64,11 +64,23 @@
                                         {% for quiz in quizzes %}
                                         <tr>
                                             <td>{{ quiz.id }}</td>
-                                            <td>{{ quiz.quiz_title }}</td>
+                                            <td>
+                                                {% if quiz.quiz_title %}
+                                                    {{ quiz.quiz_title }}
+                                                {% else %}
+                                                    Standard {{ quiz.standard_id }} Quiz
+                                                {% endif %}
+                                            </td>
                                             <td>Standard {{ quiz.standard_id }}</td>
                                             <td>{{ quiz.student_name }}</td>
                                             <td>{{ quiz.submission_date }}</td>
-                                            <td>{{ quiz.total_mark }}</td>
+                                            <td>
+                                                {% if quiz.total_mark is not none %}
+                                                    {{ "%.1f"|format(quiz.total_mark) }}
+                                                {% else %}
+                                                    -
+                                                {% endif %}
+                                            </td>
                                             <td>{{ quiz.question_count }}</td>
                                             <td>
                                                 <a href="{{ url_for('view_quiz', quiz_id=quiz.id) }}" class="btn btn-sm btn-primary">
