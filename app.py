@@ -368,12 +368,19 @@ def grade_answers_route():
                         score = image.get('score', 0)
                         total_mark += score
                         
+                        # Get the handwritten content (may be a string or a dict)
+                        handwritten_content = image.get('handwritten_content', '')
+                        
+                        # Convert dictionary or list to JSON string if needed
+                        if isinstance(handwritten_content, (dict, list)):
+                            handwritten_content = json.dumps(handwritten_content)
+                        
                         # Create a question record for this image
                         question = QuizQuestion(
                             submission=quiz_submission,
                             question_number=questions_added + 1,
                             question_text=f"Image #{questions_added + 1}",
-                            student_answer=image.get('handwritten_content', ''),
+                            student_answer=handwritten_content,
                             correct_answer='',  # No specific correct answer
                             mark_received=score,
                             feedback=image.get('feedback', '')
@@ -387,13 +394,23 @@ def grade_answers_route():
                         # Extract the data for each question
                         question_data = result.get('question_data', {})
                         
+                        # Get student response (may be string or complex type)
+                        student_response = question_data.get('student_response', '')
+                        reference_answer = question_data.get('reference_answer', '')
+                        
+                        # Convert complex data types to JSON strings
+                        if isinstance(student_response, (dict, list)):
+                            student_response = json.dumps(student_response)
+                        if isinstance(reference_answer, (dict, list)):
+                            reference_answer = json.dumps(reference_answer)
+                        
                         # Create a new question record
                         question = QuizQuestion(
                             submission=quiz_submission,
                             question_number=question_data.get('question_number', questions_added + 1),
                             question_text=question_data.get('title', ''),
-                            student_answer=question_data.get('student_response', ''),
-                            correct_answer=question_data.get('reference_answer', ''),
+                            student_answer=student_response,
+                            correct_answer=reference_answer,
                             mark_received=result.get('grade', {}).get('score', 0),
                             feedback=result.get('grade', {}).get('feedback', '')
                         )

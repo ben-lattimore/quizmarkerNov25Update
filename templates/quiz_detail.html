@@ -151,7 +151,27 @@
                                         <div class="col-md-6">
                                             <div class="mb-3">
                                                 <h6 class="fw-bold">Student's Answer:</h6>
-                                                <p>{{ question.student_answer }}</p>
+                                                {% if question.student_answer.startswith('{') or question.student_answer.startswith('[') %}
+                                                    <!-- Render structured data as a formatted list -->
+                                                    <div class="structured-data">
+                                                        {% for key, value in question.student_answer|tojson|from_json|dictsort %}
+                                                            <div class="mb-2">
+                                                                <strong>{{ key }}:</strong> 
+                                                                {% if value is mapping %}
+                                                                    <ul class="mb-0">
+                                                                        {% for subkey, subvalue in value.items() %}
+                                                                            <li><strong>{{ subkey }}:</strong> {{ subvalue }}</li>
+                                                                        {% endfor %}
+                                                                    </ul>
+                                                                {% else %}
+                                                                    {{ value }}
+                                                                {% endif %}
+                                                            </div>
+                                                        {% endfor %}
+                                                    </div>
+                                                {% else %}
+                                                    <p>{{ question.student_answer }}</p>
+                                                {% endif %}
                                             </div>
                                         </div>
                                         <div class="col-md-6">
