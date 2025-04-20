@@ -265,11 +265,17 @@ def list_quizzes():
         return render_template('error.html', error=f"Error listing quizzes: {str(e)}")
 
 @app.route('/quiz/<int:quiz_id>')
+@login_required
 def view_quiz(quiz_id):
     """View a specific quiz submission"""
     try:
         # Get the quiz submission
         submission = QuizSubmission.query.get_or_404(quiz_id)
+        
+        # Check if user has permission to view this quiz (owner or admin)
+        if not current_user.is_admin and submission.quiz.user_id != current_user.id:
+            flash('You do not have permission to view this quiz', 'danger')
+            return redirect(url_for('list_quizzes'))
         
         # Get questions for this submission
         questions = submission.questions
@@ -484,7 +490,13 @@ def grade_answers_route():
                 # Find or create the quiz
                 quiz = Quiz.query.filter_by(title=quiz_title, standard_id=standard_id).first()
                 if not quiz:
-                    quiz = Quiz(title=quiz_title, standard_id=standard_id)
+                    # Associate the quiz with the current user if authenticated
+                    user_id = None
+                    if current_user.is_authenticated:
+                        user_id = current_user.id
+                        logging.info(f"Associating quiz with user {current_user.username}")
+                    
+                    quiz = Quiz(title=quiz_title, standard_id=standard_id, user_id=user_id)
                     db.session.add(quiz)
                     logging.info(f"Created new quiz: {quiz_title} (Standard {standard_id})")
                 
@@ -613,8 +625,13 @@ def grade_answers_route():
         return jsonify({'error': f"Server error: {str(e)}"}), 500
 
 @app.route('/admin/clean_database', methods=['GET', 'POST'])
+@login_required
 def clean_database():
     """Admin route to clean the database by removing all quiz submissions"""
+    # Check if user is an admin
+    if not current_user.is_admin:
+        flash('You need admin privileges to access this page', 'danger')
+        return redirect(url_for('index'))
     if request.method == 'GET':
         # Show confirmation page
         return render_template('clean_database.html')
