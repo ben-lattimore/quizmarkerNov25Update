@@ -39,13 +39,13 @@ class RegistrationForm(FlaskForm):
         """Validate that username is not already taken"""
         user = User.query.filter_by(username=username.data).first()
         if user:
-            raise ValidationError('Username already taken. Please choose a different one.')
+            raise ValidationError('Username is already taken')
     
     def validate_email(self, email):
         """Validate that email is not already registered"""
         user = User.query.filter_by(email=email.data).first()
         if user:
-            raise ValidationError('Email already registered. Please use a different email or log in.')
+            raise ValidationError('Email is already registered')
 
 class ForgotPasswordForm(FlaskForm):
     """Form for requesting password reset"""

@@ -1,24 +1,21 @@
 import os
 import logging
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, Email, To, Content, TemplateId, Substitution, DynamicTemplateData
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from sendgrid.helpers.mail import Mail, Email, To, Content
 
 class EmailService:
     """Service for sending emails using SendGrid"""
     
     def __init__(self):
+        """Initialize email service with SendGrid API key from environment"""
         self.api_key = os.environ.get('SENDGRID_API_KEY')
+        self.from_email = 'noreply@quizgrader.com'  # Change to your domain
+        
+        # Check if API key is set
         if not self.api_key:
-            logger.warning("SENDGRID_API_KEY environment variable not set. Email functionality disabled.")
-            self.enabled = False
+            logging.warning("SENDGRID_API_KEY not set. Email functionality will not work.")
         else:
-            self.enabled = True
-            self.client = SendGridAPIClient(self.api_key)
-            self.from_email = Email("noreply@quizgrader.app", "Quiz Grader App")
+            logging.info("Email service initialized with SendGrid")
     
     def send_email(self, to_email, subject, text_content=None, html_content=None):
         """
@@ -33,37 +30,42 @@ class EmailService:
         Returns:
             bool: True if email was sent successfully, False otherwise
         """
-        if not self.enabled:
-            logger.warning("Email service disabled. Cannot send email to %s", to_email)
+        if not self.api_key:
+            logging.error("Cannot send email: SENDGRID_API_KEY not set")
             return False
         
-        # Create message
-        message = Mail(
-            from_email=self.from_email,
-            to_emails=To(to_email),
-            subject=subject
-        )
-        
-        # Add content
-        if html_content:
-            message.content = Content("text/html", html_content)
-        elif text_content:
-            message.content = Content("text/plain", text_content)
-        else:
-            logger.error("No content provided for email")
+        if not html_content and not text_content:
+            logging.error("Cannot send email: No content provided")
             return False
         
         try:
-            # Send message
-            response = self.client.send(message)
-            if response.status_code >= 200 and response.status_code < 300:
-                logger.info(f"Email sent successfully to {to_email}")
-                return True
+            # Create SendGrid client
+            sg = SendGridAPIClient(self.api_key)
+            
+            # Create message
+            message = Mail(
+                from_email=Email(self.from_email),
+                to_emails=To(to_email),
+                subject=subject
+            )
+            
+            # Add content
+            if html_content:
+                message.content = Content("text/html", html_content)
             else:
-                logger.error(f"Failed to send email: {response.status_code} - {response.body}")
-                return False
+                message.content = Content("text/plain", text_content)
+            
+            # Send email
+            response = sg.send(message)
+            
+            # Log response
+            status_code = response.status_code
+            logging.info(f"Email sent to {to_email}, status code: {status_code}")
+            
+            return status_code >= 200 and status_code < 300
+            
         except Exception as e:
-            logger.error(f"Error sending email: {str(e)}")
+            logging.error(f"Error sending email: {str(e)}")
             return False
     
     def send_welcome_email(self, to_email, username):
@@ -77,26 +79,24 @@ class EmailService:
         Returns:
             bool: True if email was sent successfully
         """
-        subject = "Welcome to Quiz Grader App"
+        subject = "Welcome to Quiz Grader!"
+        
         html_content = f"""
-        <html>
-        <body>
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #4a86e8;">Welcome to Quiz Grader App!</h2>
-                <p>Hi {username},</p>
-                <p>Thank you for registering with Quiz Grader App. Your account has been successfully created.</p>
-                <p>With Quiz Grader App, you can:</p>
-                <ul>
-                    <li>Upload handwritten quiz images</li>
-                    <li>Extract text content using advanced AI</li>
-                    <li>Grade student answers against standard references</li>
-                    <li>Track student performance over time</li>
-                </ul>
-                <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
-                <p>Best regards,<br>The Quiz Grader Team</p>
-            </div>
-        </body>
-        </html>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h1 style="color: #4a86e8;">Welcome to Quiz Grader!</h1>
+            <p>Hello <strong>{username}</strong>,</p>
+            <p>Thank you for registering with Quiz Grader. We're excited to have you on board!</p>
+            <p>With Quiz Grader, you can:</p>
+            <ul>
+                <li>Upload handwritten student quiz papers</li>
+                <li>Automatically extract and grade answers</li>
+                <li>View comprehensive grading reports</li>
+                <li>Track student performance over time</li>
+            </ul>
+            <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
+            <p>Happy grading!</p>
+            <p>The Quiz Grader Team</p>
+        </div>
         """
         
         return self.send_email(to_email, subject, html_content=html_content)
@@ -114,32 +114,22 @@ class EmailService:
         Returns:
             bool: True if email was sent successfully
         """
-        subject = "Password Reset - Quiz Grader App"
-        reset_link = f"{reset_url}?token={reset_token}"
+        subject = "Password Reset Request - Quiz Grader"
         
         html_content = f"""
-        <html>
-        <body>
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #4a86e8;">Password Reset Request</h2>
-                <p>Hi {username},</p>
-                <p>We received a request to reset your password for your Quiz Grader App account.</p>
-                <p>To reset your password, please click the button below:</p>
-                <p style="text-align: center;">
-                    <a href="{reset_link}" 
-                       style="background-color: #4a86e8; color: white; padding: 10px 20px; 
-                              text-decoration: none; border-radius: 5px; display: inline-block;">
-                        Reset Password
-                    </a>
-                </p>
-                <p>Or copy and paste this URL into your browser:</p>
-                <p>{reset_link}</p>
-                <p>This link will expire in 24 hours.</p>
-                <p>If you did not request a password reset, please ignore this email or contact us if you have concerns.</p>
-                <p>Best regards,<br>The Quiz Grader Team</p>
-            </div>
-        </body>
-        </html>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h1 style="color: #4a86e8;">Password Reset</h1>
+            <p>Hello <strong>{username}</strong>,</p>
+            <p>We received a request to reset your password for your Quiz Grader account. If you didn't make this request, you can safely ignore this email.</p>
+            <p>To reset your password, click the button below or copy and paste the URL into your browser.</p>
+            <p style="text-align: center; margin: 30px 0;">
+                <a href="{reset_url}" style="background-color: #4a86e8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Reset Password</a>
+            </p>
+            <p style="font-size: 12px; color: #666;">{reset_url}</p>
+            <p>This password reset link will expire in 24 hours.</p>
+            <p>If you didn't request a password reset, please ignore this email or contact support if you have concerns.</p>
+            <p>The Quiz Grader Team</p>
+        </div>
         """
         
         return self.send_email(to_email, subject, html_content=html_content)
@@ -157,34 +147,25 @@ class EmailService:
         Returns:
             bool: True if email was sent successfully
         """
-        subject = f"Quiz Graded: {quiz_info.get('title', 'Standard Quiz')}"
+        subject = f"Quiz Graded: {quiz_info.get('title', 'New Quiz')}"
         
         html_content = f"""
-        <html>
-        <body>
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2 style="color: #4a86e8;">Quiz Grading Complete</h2>
-                <p>Hi {username},</p>
-                <p>A quiz has been processed and graded successfully:</p>
-                <ul>
-                    <li><strong>Quiz:</strong> {quiz_info.get('title', 'Standard Quiz')}</li>
-                    <li><strong>Student:</strong> {quiz_info.get('student_name', 'Unknown')}</li>
-                    <li><strong>Standard:</strong> {quiz_info.get('standard_id', 'Unknown')}</li>
-                    <li><strong>Total Mark:</strong> {quiz_info.get('total_mark', '0')}</li>
-                    <li><strong>Submission Date:</strong> {quiz_info.get('submission_date', 'Unknown')}</li>
-                </ul>
-                <p style="text-align: center;">
-                    <a href="{quiz_url}" 
-                       style="background-color: #4a86e8; color: white; padding: 10px 20px; 
-                              text-decoration: none; border-radius: 5px; display: inline-block;">
-                        View Detailed Results
-                    </a>
-                </p>
-                <p>Thank you for using Quiz Grader App!</p>
-                <p>Best regards,<br>The Quiz Grader Team</p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h1 style="color: #4a86e8;">Quiz Grading Complete</h1>
+            <p>Hello <strong>{username}</strong>,</p>
+            <p>A quiz has been successfully graded in your Quiz Grader account.</p>
+            <div style="background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                <p><strong>Quiz Title:</strong> {quiz_info.get('title', 'N/A')}</p>
+                <p><strong>Student:</strong> {quiz_info.get('student_name', 'N/A')}</p>
+                <p><strong>Total Mark:</strong> {quiz_info.get('total_mark', 'N/A')}</p>
+                <p><strong>Submission Date:</strong> {quiz_info.get('submission_date', 'N/A')}</p>
             </div>
-        </body>
-        </html>
+            <p>To view the detailed results, click the button below:</p>
+            <p style="text-align: center; margin: 30px 0;">
+                <a href="{quiz_url}" style="background-color: #4a86e8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">View Quiz Results</a>
+            </p>
+            <p>The Quiz Grader Team</p>
+        </div>
         """
         
         return self.send_email(to_email, subject, html_content=html_content)

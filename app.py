@@ -11,6 +11,9 @@ from flask_login import LoginManager, login_user, logout_user, login_required, c
 from werkzeug.security import generate_password_hash
 
 from image_processor import process_single_image, process_images, grade_answers
+from forms import LoginForm, RegistrationForm, ForgotPasswordForm, ResetPasswordForm
+from password_reset import generate_reset_token, validate_reset_token, reset_password
+from email_service import email_service
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -33,35 +36,17 @@ def from_json(value):
     except (ValueError, TypeError):
         return {}
 
-# Configure the database connection
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if DATABASE_URL:
-    logging.info(f"Using database URL: {DATABASE_URL}")
-    app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-        "pool_recycle": 300,
-        "pool_pre_ping": True,
-    }
-else:
-    logging.error("DATABASE_URL environment variable is not set")
-    # Fallback to SQLite for development (not recommended for production)
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///quiz_app.db"
-    
-db = SQLAlchemy(app)
+# Initialize the database with this application
+from database import init_db, db
+init_db(app)
 
-# Import models after database initialization to avoid circular imports
+# Import models
 from models import User, Student, Quiz, QuizSubmission, QuizQuestion
 
 # User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
-
-# Create all database tables
-with app.app_context():
-    db.create_all()
-    logging.info("Database tables created or verified")
 
 # Configure uploads
 UPLOAD_FOLDER = '/tmp/image_uploads'
@@ -155,6 +140,9 @@ def register():
         db.session.add(new_user)
         db.session.commit()
         
+        # Send welcome email
+        email_service.send_welcome_email(new_user.email, new_user.username)
+        
         flash('Registration successful, you can now log in', 'success')
         return redirect(url_for('login'))
     
@@ -197,6 +185,64 @@ def logout():
     """Logout current user"""
     logout_user()
     return redirect(url_for('login'))
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    """Handle forgot password requests"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    form = ForgotPasswordForm()
+    
+    if form.validate_on_submit():
+        email = form.email.data
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            # Generate reset token
+            token = generate_reset_token(user)
+            
+            # Build reset URL
+            reset_url = url_for('reset_password', token=token, _external=True)
+            
+            # Send password reset email
+            if email_service.send_password_reset_email(user.email, user.username, token, reset_url):
+                flash('Password reset link has been sent to your email address.', 'success')
+            else:
+                flash('There was an error sending the email. Please try again later.', 'danger')
+        else:
+            # Don't reveal that the user doesn't exist for security reasons
+            flash('If your email is registered, you will receive a password reset link.', 'info')
+        
+        return redirect(url_for('login'))
+    
+    return render_template('forgot_password.html', form=form)
+
+@app.route('/reset-password', methods=['GET', 'POST'])
+def reset_password_route():
+    """Handle password reset"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    token = request.args.get('token')
+    if not token:
+        flash('Invalid reset link.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Validate token
+    user = validate_reset_token(token)
+    valid_token = user is not None
+    
+    form = ResetPasswordForm()
+    
+    if form.validate_on_submit() and valid_token:
+        if reset_password(token, form.password.data):
+            flash('Your password has been reset successfully. You can now log in with your new password.', 'success')
+            return redirect(url_for('login'))
+        else:
+            flash('There was an error resetting your password. Please try again.', 'danger')
+    
+    return render_template('reset_password.html', form=form, valid_token=valid_token)
 
 @app.route('/')
 def index():
@@ -606,6 +652,18 @@ def grade_answers_route():
                 # Commit the transaction
                 db.session.commit()
                 logging.info(f"Saved quiz submission to database: ID {quiz_submission.id}, Total Mark: {total_mark}")
+                
+                # Send email notification to the user
+                if current_user.is_authenticated:
+                    quiz_url = url_for('view_quiz', quiz_id=quiz_submission.id, _external=True)
+                    quiz_info = {
+                        'title': quiz.title or f"Quiz {quiz.id}",
+                        'student_name': student.name,
+                        'total_mark': total_mark,
+                        'submission_date': quiz_submission.submission_date.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    email_service.send_quiz_submission_notification(current_user.email, current_user.username, quiz_info, quiz_url)
+                    logging.info(f"Sent email notification to {current_user.email} for quiz ID {quiz_submission.id}")
                 
             except Exception as db_error:
                 db.session.rollback()

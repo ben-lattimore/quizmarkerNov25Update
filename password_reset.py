@@ -3,7 +3,7 @@ import logging
 import secrets
 import time
 from datetime import datetime, timedelta
-from app import db
+from database import db
 from models import User
 
 # Configure logging
