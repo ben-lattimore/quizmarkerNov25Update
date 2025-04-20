@@ -200,6 +200,9 @@ def logout():
 
 @app.route('/')
 def index():
+    # Redirect to login page if not logged in
+    if not current_user.is_authenticated:
+        return render_template('index.html', auth_required=True)
     return render_template('index.html')
 
 @app.route('/quizzes')
@@ -308,6 +311,7 @@ def view_quiz(quiz_id):
         return render_template('error.html', error=f"Error viewing quiz {quiz_id}: {str(e)}")
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload_files():
     # Track all saved files for reliable cleanup
     saved_filepaths = []
@@ -422,6 +426,7 @@ def upload_files():
         return jsonify({'error': f"Server error: {str(e)}"}), 500
 
 @app.route('/grade', methods=['POST'])
+@login_required
 def grade_answers_route():
     """
     Grade handwritten answers against the selected reference PDF
