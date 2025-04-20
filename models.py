@@ -1,6 +1,31 @@
 from app import db
 from datetime import datetime
 import json
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import UserMixin
+
+class User(UserMixin, db.Model):
+    """Model for storing user (marker/teacher) authentication information"""
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(64), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password_hash = db.Column(db.String(256), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationship with quizzes - a user can mark multiple quizzes
+    marked_quizzes = db.relationship('Quiz', backref='marker', lazy=True)
+    
+    def set_password(self, password):
+        """Set password hash from plain text password"""
+        self.password_hash = generate_password_hash(password)
+        
+    def check_password(self, password):
+        """Check if password matches stored hash"""
+        return check_password_hash(self.password_hash, password)
+        
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 class Student(db.Model):
     """Model for storing student information"""
@@ -20,6 +45,7 @@ class Quiz(db.Model):
     title = db.Column(db.String(200))
     standard_id = db.Column(db.Integer, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)  # The marker who created/owns this quiz
     
     # Relationship to quiz submissions
     submissions = db.relationship('QuizSubmission', backref='quiz', lazy=True)

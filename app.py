@@ -4,9 +4,12 @@ import uuid
 import time
 import json
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash
+
 from image_processor import process_single_image, process_images, grade_answers
 
 # Configure logging
@@ -15,6 +18,11 @@ logging.basicConfig(level=logging.DEBUG)
 # Create the Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", str(uuid.uuid4()))
+
+# Set up Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # Add custom filters for JSON handling
 @app.template_filter('from_json')
@@ -43,7 +51,12 @@ else:
 db = SQLAlchemy(app)
 
 # Import models after database initialization to avoid circular imports
-from models import Student, Quiz, QuizSubmission, QuizQuestion
+from models import User, Student, Quiz, QuizSubmission, QuizQuestion
+
+# User loader for Flask-Login
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 # Create all database tables
 with app.app_context():
@@ -102,29 +115,127 @@ def get_standards():
             "error": "Failed to get standards"
         }), 500
 
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Register a new teacher/marker user"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if not username or not email or not password or not confirm_password:
+            flash('All fields are required', 'danger')
+            return render_template('register.html')
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'danger')
+            return render_template('register.html')
+        
+        # Check if user with this username or email already exists
+        existing_user = User.query.filter(
+            (User.username == username) | (User.email == email)
+        ).first()
+        
+        if existing_user:
+            flash('Username or email already exists', 'danger')
+            return render_template('register.html')
+        
+        # Create new user
+        new_user = User(username=username, email=email)
+        new_user.set_password(password)
+        
+        # Make first user an admin
+        if User.query.count() == 0:
+            new_user.is_admin = True
+        
+        db.session.add(new_user)
+        db.session.commit()
+        
+        flash('Registration successful, you can now log in', 'success')
+        return redirect(url_for('login'))
+    
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login for teacher/marker users"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        remember = request.form.get('remember') == 'on'
+        
+        if not username or not password:
+            flash('Username and password are required', 'danger')
+            return render_template('login.html')
+        
+        # Try to find user by username or email
+        user = User.query.filter(
+            (User.username == username) | (User.email == username)
+        ).first()
+        
+        if user and user.check_password(password):
+            login_user(user, remember=remember)
+            next_page = request.args.get('next')
+            if next_page:
+                return redirect(next_page)
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid username or password', 'danger')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Logout current user"""
+    logout_user()
+    return redirect(url_for('login'))
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/quizzes')
+@login_required
 def list_quizzes():
-    """List all quiz submissions in the database"""
+    """List all quiz submissions in the database for the current user"""
     try:
         # Get quiz counts to ensure consistency
         submission_count = QuizSubmission.query.count()
         logging.info(f"Found {submission_count} submissions in the database")
         
-        # Get all quiz submissions directly from database with a join query for better performance
-        # This also helps diagnose issues with relationship loading
-        submissions = db.session.query(
-            QuizSubmission, Quiz, Student
-        ).join(
-            Quiz, QuizSubmission.quiz_id == Quiz.id
-        ).join(
-            Student, QuizSubmission.student_id == Student.id
-        ).order_by(
-            QuizSubmission.submission_date.desc()
-        ).all()
+        # Get quiz submissions for the current user (or all if admin)
+        if current_user.is_admin:
+            logging.info(f"Admin user {current_user.username} viewing all submissions")
+            submissions = db.session.query(
+                QuizSubmission, Quiz, Student
+            ).join(
+                Quiz, QuizSubmission.quiz_id == Quiz.id
+            ).join(
+                Student, QuizSubmission.student_id == Student.id
+            ).order_by(
+                QuizSubmission.submission_date.desc()
+            ).all()
+        else:
+            logging.info(f"User {current_user.username} viewing their submissions")
+            submissions = db.session.query(
+                QuizSubmission, Quiz, Student
+            ).join(
+                Quiz, QuizSubmission.quiz_id == Quiz.id
+            ).join(
+                Student, QuizSubmission.student_id == Student.id
+            ).filter(
+                Quiz.user_id == current_user.id
+            ).order_by(
+                QuizSubmission.submission_date.desc()
+            ).all()
         
         logging.info(f"Found {len(submissions)} submissions after join query")
         
