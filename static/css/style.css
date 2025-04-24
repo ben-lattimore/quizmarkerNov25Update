@@ -9,8 +9,8 @@
 
 /* Base styles */
 body {
-    color: var(--main-color);
-    background-color: var(--white-color);
+    color: var(--white-color);
+    background-color: var(--main-color);
     font-family: 'Arial', sans-serif;
 }
 
@@ -21,6 +21,17 @@ a {
 
 a:hover {
     text-decoration: underline;
+    color: #5ea3e8; /* Lighter blue for hover on dark background */
+}
+
+/* Content cards */
+.card {
+    background-color: var(--white-color);
+    color: var(--main-color);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 .btn-primary {
@@ -42,16 +53,17 @@ a:hover {
 
 /* Upload area styling */
 .upload-area {
-    border: 2px dashed var(--main-color);
+    border: 2px dashed var(--white-color);
     border-radius: 8px;
     padding: 2rem;
     transition: all 0.3s ease;
-    background-color: rgba(21, 26, 77, 0.1);
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--white-color);
 }
 
 .upload-area:hover, .upload-area.dragover {
     border-color: var(--highlight-color);
-    background-color: rgba(15, 115, 219, 0.1);
+    background-color: rgba(15, 115, 219, 0.2);
 }
 
 /* Results container */
@@ -175,7 +187,17 @@ a:hover {
 
 /* Navigation */
 header h1 {
-    color: var(--main-color);
+    color: var(--white-color);
+}
+
+.navbar {
+    padding: 1rem 0;
+}
+
+.navbar-brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--white-color);
 }
 
 nav ul {
@@ -186,16 +208,31 @@ nav ul {
 }
 
 nav a {
-    color: var(--highlight-color);
+    color: var(--white-color);
     font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+nav a:hover {
+    color: var(--highlight-color);
+}
+
+.nav-item.active a {
+    color: var(--highlight-color);
 }
 
 /* Footer */
 footer {
     margin-top: 2rem;
     padding: 1rem 0;
-    border-top: 1px solid rgba(21, 26, 77, 0.1);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     text-align: center;
-    color: var(--main-color);
+    color: var(--white-color);
     font-size: 0.9rem;
+}
+
+/* Page title */
+.page-title {
+    color: var(--white-color);
+    margin-bottom: 1.5rem;
 }
