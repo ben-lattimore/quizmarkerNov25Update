@@ -1,17 +1,57 @@
-/* Custom styles for Image Text Extractor app */
+/* Custom styles for Quiz Grader app */
+
+/* Color variables */
+:root {
+    --main-color: #151a4d;     /* Main background + text color on white */
+    --white-color: #ffffff;     /* White */
+    --highlight-color: #0f73db; /* Spot/Highlight Blue */
+}
+
+/* Base styles */
+body {
+    color: var(--main-color);
+    background-color: var(--white-color);
+    font-family: 'Arial', sans-serif;
+}
+
+a {
+    color: var(--highlight-color);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.btn-primary {
+    background-color: var(--highlight-color);
+    border-color: var(--highlight-color);
+}
+
+.btn-primary:hover, 
+.btn-primary:focus, 
+.btn-primary:active {
+    background-color: #0a5cb0; /* Slightly darker blue for hover state */
+    border-color: #0a5cb0;
+}
+
+.card-header {
+    background-color: var(--main-color);
+    color: var(--white-color);
+}
 
 /* Upload area styling */
 .upload-area {
-    border: 2px dashed var(--bs-secondary);
+    border: 2px dashed var(--main-color);
     border-radius: 8px;
     padding: 2rem;
     transition: all 0.3s ease;
-    background-color: rgba(33, 37, 41, 0.3);
+    background-color: rgba(21, 26, 77, 0.1);
 }
 
 .upload-area:hover, .upload-area.dragover {
-    border-color: var(--bs-primary);
-    background-color: rgba(13, 110, 253, 0.1);
+    border-color: var(--highlight-color);
+    background-color: rgba(15, 115, 219, 0.1);
 }
 
 /* Results container */
@@ -53,7 +93,8 @@
 }
 
 .result-card .card-header {
-    background-color: rgba(33, 37, 41, 0.8);
+    background-color: var(--main-color);
+    color: var(--white-color);
     padding: 0.5rem 1rem;
 }
 
@@ -65,20 +106,20 @@
 
 /* Text content sections */
 .text-primary h6 {
-    color: var(--bs-primary);
+    color: var(--main-color);
     font-weight: 600;
 }
 
 .text-info h6 {
-    color: var(--bs-info);
+    color: var(--highlight-color);
     font-weight: 600;
 }
 
 /* Handwritten content styling */
 .text-info .border {
-    border-color: var(--bs-info) !important;
+    border-color: var(--highlight-color) !important;
     font-family: 'Segoe Script', 'Bradley Hand', cursive, sans-serif;
-    background-color: rgba(13, 202, 240, 0.05) !important;
+    background-color: rgba(15, 115, 219, 0.05) !important;
 }
 
 /* Section headers */
@@ -90,7 +131,31 @@
 
 /* Error text */
 .error-text {
-    color: var(--bs-danger);
+    color: #dc3545; /* Keep the red color for errors */
+}
+
+/* Form styling */
+.form-control:focus {
+    border-color: var(--highlight-color);
+    box-shadow: 0 0 0 0.25rem rgba(15, 115, 219, 0.25);
+}
+
+.alert-success {
+    background-color: rgba(15, 115, 219, 0.15);
+    border-color: var(--highlight-color);
+    color: var(--main-color);
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    border-color: #f5c2c7;
+    color: #842029;
+}
+
+.alert-info {
+    background-color: rgba(21, 26, 77, 0.1);
+    border-color: var(--main-color);
+    color: var(--main-color);
 }
 
 /* Loading animation */
@@ -104,6 +169,33 @@
     height: 2rem;
     border: 4px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
-    border-top-color: var(--bs-primary);
+    border-top-color: var(--highlight-color);
     animation: spinner 1s linear infinite;
+}
+
+/* Navigation */
+header h1 {
+    color: var(--main-color);
+}
+
+nav ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    gap: 20px;
+}
+
+nav a {
+    color: var(--highlight-color);
+    font-weight: 500;
+}
+
+/* Footer */
+footer {
+    margin-top: 2rem;
+    padding: 1rem 0;
+    border-top: 1px solid rgba(21, 26, 77, 0.1);
+    text-align: center;
+    color: var(--main-color);
+    font-size: 0.9rem;
 }
