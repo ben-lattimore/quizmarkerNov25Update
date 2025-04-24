@@ -9,7 +9,8 @@ class EmailService:
     def __init__(self):
         """Initialize email service with SendGrid API key from environment"""
         self.api_key = os.environ.get('SENDGRID_API_KEY')
-        self.from_email = 'noreply@quizgrader.com'  # Change to your domain
+        # Use a generic verified sender email that's been verified in SendGrid
+        self.from_email = 'hello@benlattimore.com'  # Using the same email as the test user
         
         # Check if API key is set
         if not self.api_key:
