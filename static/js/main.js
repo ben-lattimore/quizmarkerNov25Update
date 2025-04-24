@@ -12,8 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const statusMessage = document.getElementById('statusMessage');
     const resultsCard = document.getElementById('resultsCard');
     const resultsPreview = document.getElementById('resultsPreview');
-    const jsonOutput = document.getElementById('jsonOutput');
-    const downloadJsonBtn = document.getElementById('downloadJsonBtn');
+    // JSON-related elements have been removed from the HTML
     const newUploadBtn = document.getElementById('newUploadBtn');
     const gradeAnswersBtn = document.getElementById('gradeAnswersBtn');
     const standardSelector = document.getElementById('standardSelector');
@@ -386,13 +385,8 @@ document.addEventListener('DOMContentLoaded', function() {
     function displayResults(results) {
         if (!results || results.length === 0) {
             resultsPreview.innerHTML = '<div class="alert alert-info">No results to display</div>';
-            jsonOutput.textContent = '{}';
             return;
         }
-        
-        // Format the JSON output
-        const formattedJson = JSON.stringify(results, null, 2);
-        jsonOutput.textContent = formattedJson;
         
         // Clear previous results
         resultsPreview.innerHTML = '';
