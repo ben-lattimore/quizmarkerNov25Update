@@ -496,23 +496,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Download JSON results
-    downloadJsonBtn.addEventListener('click', function() {
-        if (!processedResults) {
-            showError('No data available to download');
-            return;
-        }
-        
-        const dataStr = JSON.stringify(processedResults, null, 2);
-        const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-        
-        const exportFileName = `image-extraction-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
-        
-        const linkElement = document.createElement('a');
-        linkElement.setAttribute('href', dataUri);
-        linkElement.setAttribute('download', exportFileName);
-        linkElement.click();
-    });
+    // Download JSON button has been removed
 
     // New upload button - reset UI
     newUploadBtn.addEventListener('click', function() {
