@@ -1,92 +1,17 @@
-/* Custom styles for Quiz Grader app */
-
-/* Color variables */
-:root {
-    --main-color: #151a4d;     /* Main background + text color on white */
-    --white-color: #ffffff;     /* White */
-    --highlight-color: #0f73db; /* Spot/Highlight Blue */
-}
-
-/* Base styles */
-body {
-    color: var(--white-color);
-    background-color: var(--main-color);
-    font-family: 'Arial', sans-serif;
-}
-
-a {
-    color: var(--highlight-color);
-    text-decoration: none;
-}
-
-a:hover {
-    text-decoration: underline;
-    color: #5ea3e8; /* Lighter blue for hover on dark background */
-}
-
-/* Content cards */
-.card {
-    background-color: var(--white-color);
-    color: var(--main-color);
-    border-radius: 8px;
-    overflow: hidden;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-}
-
-/* Fix card headers with bg-primary to use our colors */
-.card-header.bg-primary {
-    background-color: var(--highlight-color) !important;
-}
-
-/* Content inside cards should have dark text on white background */
-.card-body {
-    color: var(--main-color);
-}
-
-/* Any alerts inside cards should also have appropriate colors */
-.card .alert {
-    color: var(--main-color);
-}
-
-/* Make sure form inputs in cards have dark text */
-.card input, 
-.card textarea, 
-.card select,
-.card .form-control {
-    color: var(--main-color);
-}
-
-.btn-primary {
-    background-color: var(--highlight-color);
-    border-color: var(--highlight-color);
-}
-
-.btn-primary:hover, 
-.btn-primary:focus, 
-.btn-primary:active {
-    background-color: #0a5cb0; /* Slightly darker blue for hover state */
-    border-color: #0a5cb0;
-}
-
-.card-header {
-    background-color: var(--main-color);
-    color: var(--white-color);
-}
+/* Custom styles for Image Text Extractor app */
 
 /* Upload area styling */
 .upload-area {
-    border: 2px dashed var(--white-color);
+    border: 2px dashed var(--bs-secondary);
     border-radius: 8px;
     padding: 2rem;
     transition: all 0.3s ease;
-    background-color: rgba(255, 255, 255, 0.1);
-    color: var(--white-color);
+    background-color: rgba(33, 37, 41, 0.3);
 }
 
 .upload-area:hover, .upload-area.dragover {
-    border-color: var(--highlight-color);
-    background-color: rgba(15, 115, 219, 0.2);
+    border-color: var(--bs-primary);
+    background-color: rgba(13, 110, 253, 0.1);
 }
 
 /* Results container */
@@ -128,8 +53,7 @@ a:hover {
 }
 
 .result-card .card-header {
-    background-color: var(--main-color);
-    color: var(--white-color);
+    background-color: rgba(33, 37, 41, 0.8);
     padding: 0.5rem 1rem;
 }
 
@@ -141,20 +65,20 @@ a:hover {
 
 /* Text content sections */
 .text-primary h6 {
-    color: var(--main-color);
+    color: var(--bs-primary);
     font-weight: 600;
 }
 
 .text-info h6 {
-    color: var(--highlight-color);
+    color: var(--bs-info);
     font-weight: 600;
 }
 
 /* Handwritten content styling */
 .text-info .border {
-    border-color: var(--highlight-color) !important;
+    border-color: var(--bs-info) !important;
     font-family: 'Segoe Script', 'Bradley Hand', cursive, sans-serif;
-    background-color: rgba(15, 115, 219, 0.05) !important;
+    background-color: rgba(13, 202, 240, 0.05) !important;
 }
 
 /* Section headers */
@@ -166,31 +90,7 @@ a:hover {
 
 /* Error text */
 .error-text {
-    color: #dc3545; /* Keep the red color for errors */
-}
-
-/* Form styling */
-.form-control:focus {
-    border-color: var(--highlight-color);
-    box-shadow: 0 0 0 0.25rem rgba(15, 115, 219, 0.25);
-}
-
-.alert-success {
-    background-color: rgba(15, 115, 219, 0.15);
-    border-color: var(--highlight-color);
-    color: var(--main-color);
-}
-
-.alert-danger {
-    background-color: #f8d7da;
-    border-color: #f5c2c7;
-    color: #842029;
-}
-
-.alert-info {
-    background-color: rgba(21, 26, 77, 0.1);
-    border-color: var(--main-color);
-    color: var(--main-color);
+    color: var(--bs-danger);
 }
 
 /* Loading animation */
@@ -204,96 +104,6 @@ a:hover {
     height: 2rem;
     border: 4px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
-    border-top-color: var(--highlight-color);
+    border-top-color: var(--bs-primary);
     animation: spinner 1s linear infinite;
-}
-
-/* Navigation */
-header h1 {
-    color: var(--white-color);
-}
-
-.navbar {
-    padding: 1rem 0;
-}
-
-.navbar-brand {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--white-color);
-}
-
-nav ul {
-    list-style: none;
-    padding: 0;
-    display: flex;
-    gap: 20px;
-}
-
-nav a {
-    color: var(--white-color);
-    font-weight: 500;
-    transition: color 0.2s ease;
-}
-
-nav a:hover {
-    color: var(--highlight-color);
-}
-
-.nav-item.active a {
-    color: var(--highlight-color);
-}
-
-/* Fix text colors inside cards and containers */
-.nav-tabs .nav-link {
-    color: var(--main-color);
-}
-
-.nav-tabs .nav-link.active {
-    font-weight: 600;
-}
-
-/* Light text for dark background */
-.small.text-muted {
-    color: rgba(255, 255, 255, 0.7) !important;
-}
-
-/* Card text should be dark */
-.card .small.text-muted {
-    color: rgba(21, 26, 77, 0.7) !important;
-}
-
-/* Navbar and other adjustments */
-.navbar-toggler-icon {
-    filter: invert(1);
-}
-
-/* Make text in color cards readable */
-.card-header.bg-primary h5 {
-    color: white;
-}
-
-.card-header.bg-success h5 {
-    color: white;
-}
-
-/* Dropdown styling */
-.dropdown-item {
-    color: var(--main-color) !important;
-}
-
-/* Footer */
-footer {
-    margin-top: 2rem;
-    padding: 1rem 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    text-align: center;
-    color: var(--white-color);
-    font-size: 0.9rem;
-}
-
-/* Page title */
-.page-title {
-    color: var(--white-color);
-    margin-bottom: 1.5rem;
 }
