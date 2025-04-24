@@ -30,9 +30,9 @@
                             <li class="nav-item">
                                 <a class="nav-link" href="{{ url_for('list_quizzes') }}">Quiz Submissions</a>
                             </li>
-                            {% if current_user.is_admin %}
+                            {% if current_user.is_super_admin %}
                             <li class="nav-item">
-                                <a class="nav-link" href="{{ url_for('clean_database') }}">Admin: Clean Database</a>
+                                <a class="nav-link" href="{{ url_for('clean_database') }}">Super Admin: Clean Database</a>
                             </li>
                             {% endif %}
                         </ul>

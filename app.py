@@ -690,10 +690,10 @@ def grade_answers_route():
 @app.route('/admin/clean_database', methods=['GET', 'POST'])
 @login_required
 def clean_database():
-    """Admin route to clean the database by removing all quiz submissions"""
-    # Check if user is an admin
-    if not current_user.is_admin:
-        flash('You need admin privileges to access this page', 'danger')
+    """Super Admin route to clean the database by removing all quiz submissions"""
+    # Check if user is a super admin
+    if not current_user.is_super_admin:
+        flash('You need super admin privileges to access this page. This page is restricted to system administrators only.', 'danger')
         return redirect(url_for('index'))
     if request.method == 'GET':
         # Show confirmation page
