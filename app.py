@@ -203,7 +203,7 @@ def forgot_password():
             token = generate_reset_token(user)
             
             # Build reset URL
-            reset_url = url_for('reset_password', token=token, _external=True)
+            reset_url = url_for('reset_password_route', token=token, _external=True)
             
             # Send password reset email
             if email_service.send_password_reset_email(user.email, user.username, token, reset_url):
