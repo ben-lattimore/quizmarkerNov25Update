@@ -34,6 +34,29 @@ a:hover {
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
+/* Fix card headers with bg-primary to use our colors */
+.card-header.bg-primary {
+    background-color: var(--highlight-color) !important;
+}
+
+/* Content inside cards should have dark text on white background */
+.card-body {
+    color: var(--main-color);
+}
+
+/* Any alerts inside cards should also have appropriate colors */
+.card .alert {
+    color: var(--main-color);
+}
+
+/* Make sure form inputs in cards have dark text */
+.card input, 
+.card textarea, 
+.card select,
+.card .form-control {
+    color: var(--main-color);
+}
+
 .btn-primary {
     background-color: var(--highlight-color);
     border-color: var(--highlight-color);
@@ -219,6 +242,44 @@ nav a:hover {
 
 .nav-item.active a {
     color: var(--highlight-color);
+}
+
+/* Fix text colors inside cards and containers */
+.nav-tabs .nav-link {
+    color: var(--main-color);
+}
+
+.nav-tabs .nav-link.active {
+    font-weight: 600;
+}
+
+/* Light text for dark background */
+.small.text-muted {
+    color: rgba(255, 255, 255, 0.7) !important;
+}
+
+/* Card text should be dark */
+.card .small.text-muted {
+    color: rgba(21, 26, 77, 0.7) !important;
+}
+
+/* Navbar and other adjustments */
+.navbar-toggler-icon {
+    filter: invert(1);
+}
+
+/* Make text in color cards readable */
+.card-header.bg-primary h5 {
+    color: white;
+}
+
+.card-header.bg-success h5 {
+    color: white;
+}
+
+/* Dropdown styling */
+.dropdown-item {
+    color: var(--main-color) !important;
 }
 
 /* Footer */
