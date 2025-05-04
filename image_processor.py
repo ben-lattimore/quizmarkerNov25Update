@@ -329,6 +329,214 @@ def process_images(image_paths):
     # Return whatever results we have managed to collect
     return results
 
+def prepare_grading_document(extracted_data, pdf_text, standard_num):
+    """
+    Prepare a single document with all answers for grading
+    
+    Args:
+        extracted_data: List of dictionaries with extracted text data
+        pdf_text: Reference text from the standard PDF
+        standard_num: Standard number being graded
+        
+    Returns:
+        A structured document for grading
+    """
+    # Create the document header with clear instructions
+    document = f"""
+    STANDARD {standard_num} ASSESSMENT GRADING
+    ----------------------------------------
+    
+    REFERENCE MATERIAL FOR STANDARD {standard_num}:
+    {pdf_text[:3000]}  # Truncate to reasonable size
+    
+    STUDENT ANSWERS TO GRADE:
+    """
+    
+    # Add each answer with clear separation and numbering
+    for i, item in enumerate(extracted_data):
+        data = item.get('data', {})
+        handwritten = data.get('handwritten_content', 'No content provided')
+        filename = item.get('filename', f'Image {i+1}')
+        
+        # Clean up handwritten content if needed
+        if isinstance(handwritten, dict):
+            # If it's a dictionary, convert to string
+            handwritten = json.dumps(handwritten)
+        
+        # Ensure it's not too long
+        if len(handwritten) > 1000:
+            handwritten = handwritten[:1000] + "... [content truncated]"
+        
+        document += f"""
+    ----------------------------------------
+    ANSWER {i+1} ({filename}):
+    {handwritten}
+    ----------------------------------------
+    """
+    
+    return document
+
+def grade_combined_document(document, standard_num, extracted_data):
+    """
+    Grade all answers in a single API call
+    
+    Args:
+        document: Formatted document with all answers
+        standard_num: Standard number being graded
+        extracted_data: Original extraction data
+        
+    Returns:
+        Dictionary with grading results
+    """
+    # Create a clear, concise prompt
+    system_prompt = f"""
+    You are grading student answers for Standard {standard_num} of healthcare training.
+    Evaluate each answer based on accuracy, completeness, and understanding of the reference material.
+    
+    For EACH answer separately:
+    1. Assign a score from 0-10
+    2. Provide brief, constructive feedback (2-3 sentences maximum)
+    
+    Format your response as a JSON object with this exact structure:
+    {{
+      "answers": [
+        {{
+          "answer_number": 1,
+          "score": 8,
+          "feedback": "Good explanation of key concepts. Could include more about..."
+        }},
+        ...more answers...
+      ]
+    }}
+    """
+    
+    # Make the API call with optimized settings
+    logging.info(f"Making single API call to grade Standard {standard_num} document with {len(extracted_data)} answers")
+    
+    start_time = time.time()
+    max_api_attempts = 2
+    current_attempt = 0
+    
+    while current_attempt < max_api_attempts:
+        current_attempt += 1
+        try:
+            logging.info(f"Combined grading API attempt {current_attempt}/{max_api_attempts}")
+            
+            response = openai.chat.completions.create(
+                model="gpt-4.1-mini",  # Using requested model
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": document}
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=3000,
+                temperature=0
+            )
+            
+            # Calculate response time
+            elapsed_time = time.time() - start_time
+            logging.info(f"OpenAI API response received in {elapsed_time:.2f} seconds for combined grading")
+            
+            # Parse the response
+            content = response.choices[0].message.content
+            
+            # Verify the response is valid JSON and not empty
+            if not content:
+                raise ValueError("Empty response received from OpenAI")
+                
+            # Parse the JSON response
+            grading_results = json.loads(content)
+            
+            # Transform into our expected format
+            return transform_grading_results(grading_results, extracted_data)
+            
+        except (APITimeoutError, APIConnectionError, httpx.ReadTimeout) as timeout_error:
+            elapsed_time = time.time() - start_time
+            logging.error(f"API timeout after {elapsed_time:.2f}s: {str(timeout_error)}")
+            
+            # If not the last attempt, retry after a delay
+            if current_attempt < max_api_attempts:
+                retry_wait = 3 * current_attempt  # Incremental backoff
+                logging.info(f"Waiting {retry_wait}s before retry...")
+                time.sleep(retry_wait)
+            else:
+                # Last attempt failed
+                logging.error(f"All {max_api_attempts} API attempts failed for combined grading")
+                raise
+        
+        except Exception as e:
+            logging.error(f"Error during combined grading: {str(e)}")
+            raise
+    
+    # Should never reach here due to exceptions
+    raise ValueError("Failed to grade answers after all attempts")
+
+def transform_grading_results(grading_results, extracted_data):
+    """
+    Transform the combined grading results into our standard format
+    
+    Args:
+        grading_results: Results from API call
+        extracted_data: Original extraction data
+        
+    Returns:
+        Results in our standard format
+    """
+    # Initialize our standard format
+    standard_format = {
+        "images": []
+    }
+    
+    # Validate grading results
+    if not isinstance(grading_results, dict):
+        raise ValueError(f"Invalid grading results format: {type(grading_results)}")
+        
+    # Get the answers array
+    answers = grading_results.get('answers', [])
+    
+    if not answers:
+        logging.warning("No answers found in grading results")
+        
+    # For each answer, create an entry in our format
+    for i, answer in enumerate(answers):
+        # Safely get answer number (1-based)
+        answer_number = answer.get('answer_number', i+1)
+        # Adjust to 0-based index for lookup
+        extract_index = answer_number - 1
+        
+        # Get original extracted data
+        extract = extracted_data[extract_index] if extract_index < len(extracted_data) else {}
+        data = extract.get('data', {})
+        handwritten = data.get('handwritten_content', '')
+        filename = extract.get('filename', f'image_{extract_index+1}.jpg')
+        
+        # Create the entry
+        standard_format["images"].append({
+            "filename": filename,
+            "score": answer.get('score', 5),  # Default to 5 if missing
+            "handwritten_content": handwritten,
+            "feedback": answer.get('feedback', 'No feedback provided')
+        })
+    
+    # Make sure we have entries for all extractions
+    if len(standard_format["images"]) < len(extracted_data):
+        logging.warning(f"Mismatch: {len(standard_format['images'])} graded answers vs {len(extracted_data)} extractions")
+        # Add default entries for any missing answers
+        for i in range(len(standard_format["images"]), len(extracted_data)):
+            extract = extracted_data[i]
+            data = extract.get('data', {})
+            handwritten = data.get('handwritten_content', '')
+            filename = extract.get('filename', f'image_{i+1}.jpg')
+            
+            standard_format["images"].append({
+                "filename": filename,
+                "score": 5,  # Default middle score
+                "handwritten_content": handwritten,
+                "feedback": "This answer received a default score as it was not included in the grading results."
+            })
+    
+    return standard_format
+
 def grade_answers(extracted_data, pdf_path):
     """
     Grade handwritten answers against a reference PDF
@@ -382,12 +590,32 @@ def grade_answers(extracted_data, pdf_path):
             logging.error(f"PDF error traceback: {traceback.format_exc()}")
             pdf_text = f"[Error extracting PDF content: {str(pdf_error)}]"
         
-        # Convert the extracted_data to a formatted string for the prompt
-        extraction_json = json.dumps(extracted_data, indent=2)
-        
         # Determine which standard we're grading against
         standard_num = os.path.basename(pdf_path).replace("Standard-", "").replace(".pdf", "")
         logging.info(f"Grading against Standard {standard_num}")
+        
+        # Try the new combined grading approach
+        try:
+            # Prepare the single document with all answers for combined grading
+            document = prepare_grading_document(extracted_data, pdf_text, standard_num)
+            
+            # Log document length for debugging
+            logging.info(f"Prepared combined document with {len(document)} characters")
+            
+            # Grade the document in a single API call
+            logging.info(f"Using new combined grading approach for Standard {standard_num}")
+            return grade_combined_document(document, standard_num, extracted_data)
+            
+        except Exception as combined_error:
+            # Log the error
+            logging.error(f"Combined grading approach failed: {str(combined_error)}")
+            logging.error(f"Falling back to original approach for Standard {standard_num}")
+            
+            # Continue with original approach below as fallback
+        
+        # Original approach (fallback if combined approach fails)
+        # Convert the extracted_data to a formatted string for the prompt
+        extraction_json = json.dumps(extracted_data, indent=2)
         
         # Add special handling for Standard-9, which may have issues
         standard_nine_desc = ""

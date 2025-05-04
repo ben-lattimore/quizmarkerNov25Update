@@ -593,7 +593,8 @@ def grade_answers_route():
                     logging.info(f"Created direct fallback for {len(valid_extractions)} Standard 9 extractions - BYPASSING OpenAI")
                 else:
                     # For other standards, try normal grading process
-                    logging.info(f"Using normal grading process for Standard {standard_id}")
+                    logging.info(f"Using enhanced combined grading process for Standard {standard_id}")
+                    # New approach will automatically try the combined approach first, with fallback to original method
                     grading_results = grade_answers(valid_extractions, pdf_path)
                 
             except Exception as grade_error:
