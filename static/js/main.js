@@ -31,6 +31,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load available standards when the page loads
     async function loadStandards() {
         try {
+            // Check if standardSelector exists before manipulating it
+            if (!standardSelector) {
+                console.log('Standard selector element not found on this page');
+                return;
+            }
+
             const response = await fetch('/standards');
             if (!response.ok) {
                 console.error('Failed to load standards');
@@ -533,7 +539,13 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Check if a standard is selected
+        // Check if standard selector exists and a standard is selected
+        if (!standardSelector) {
+            console.error('Standard selector not found on page');
+            showError('Cannot access standard selection. Please refresh the page and try again.');
+            return;
+        }
+        
         const selectedStandardId = standardSelector.value;
         if (!selectedStandardId) {
             showError('Please select a standard to grade against.');
