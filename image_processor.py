@@ -350,10 +350,13 @@ def grade_answers(extracted_data, pdf_path):
         
         # Add special handling for Standard-9, which may have issues
         standard_nine_desc = ""
-        if standard_num == "9" and (len(pdf_text.strip()) < 500 or "[Error extracting PDF content" in pdf_text):
-            logging.warning("Standard 9 detected with potential extraction issues, adding fallback content")
+        # For Standard 9, always add our fallback content regardless of extraction success
+        if standard_num == "9":
+            logging.warning("Standard 9 detected - using guaranteed fallback content")
             standard_nine_desc = """
-Standard 9 covers Mental Health, Dementia and Learning Disabilities. Key points include:
+Standard 9: Mental Health, Dementia and Learning Disabilities
+
+Key learning points:
 - Understanding the needs of people with mental health conditions, dementia, and learning disabilities
 - Recognizing signs of mental health conditions like depression, anxiety, and psychosis
 - Understanding how to support individuals with dementia and learning disabilities
@@ -362,14 +365,27 @@ Standard 9 covers Mental Health, Dementia and Learning Disabilities. Key points 
 - Supporting independence and encouraging active participation
 - The importance of early detection and intervention
 - Understanding legal frameworks including Mental Capacity Act
+
+Mental health conditions can affect:
+- How a person thinks, feels, and behaves
+- Their ability to handle daily activities and challenges
+- Their relationships with others
+
+Dementia is not a single illness but a group of symptoms caused by different diseases affecting the brain, including:
+- Memory loss and confusion
+- Difficulty with communication and language
+- Reduced ability to problem-solve
+
+Learning disabilities affect the way a person:
+- Understands information
+- Learns new skills
+- Communicates with others
+- May need additional support with daily activities
 """
-            # Append this to the extracted text if we had issues
-            if len(pdf_text.strip()) < 500:
-                pdf_text = standard_nine_desc + "\n\n" + pdf_text
-            elif "[Error extracting PDF content" in pdf_text:
-                pdf_text = standard_nine_desc
+            # Always use our fallback content for Standard 9 to ensure consistency
+            pdf_text = standard_nine_desc
             
-            logging.info(f"Added Standard 9 fallback content, pdf_text now {len(pdf_text)} chars")
+            logging.info(f"Using guaranteed Standard 9 fallback content, pdf_text now {len(pdf_text)} chars")
         
         # Construct a prompt based on the specific standard
         prompt = f"""You are an expert in grading handwritten answers against reference materials. 
