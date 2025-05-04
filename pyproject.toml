@@ -17,4 +17,5 @@ dependencies = [
     "sendgrid>=6.11.0",
     "wtforms>=3.2.1",
     "sqlalchemy>=2.0.40",
+    "httpx[http2]>=0.28.1",
 ]

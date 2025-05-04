@@ -4,24 +4,62 @@ import json
 import time
 import logging
 import traceback
-from openai import OpenAI, APITimeoutError, RateLimitError, BadRequestError
+import httpx
+try:
+    from openai import OpenAI, APITimeoutError, RateLimitError, BadRequestError, APIError, APIConnectionError
+except ImportError:
+    # In case specific error types aren't available in the version
+    from openai import OpenAI
+    APITimeoutError = Exception
+    RateLimitError = Exception
+    BadRequestError = Exception
+    APIError = Exception
+    APIConnectionError = Exception
 
 # User has requested to use "gpt-4.1-mini" instead of the default "gpt-4o" model
 # This was changed from gpt-4o at the user's request
 
 # Configure OpenAI client with timeout and connection settings
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-timeout_settings = 90.0  # 90 seconds timeout for API calls
+timeout_settings = 60.0  # 60 seconds timeout for API calls
 max_retries = 2  # Try up to 3 times total (1 initial + 2 retries)
 retry_delay = 2  # Wait 2 seconds between retries
 api_timeout_error_msg = "OpenAI API request timed out. The service might be experiencing high load."
 
 # Initialize OpenAI client with improved timeout settings
-openai = OpenAI(
-    api_key=OPENAI_API_KEY,
-    timeout=timeout_settings,
-    max_retries=max_retries
-)
+try:
+    # Create a custom httpx client with specific timeout settings
+    http_client = httpx.Client(
+        timeout=httpx.Timeout(
+            connect=10.0,  # connection timeout
+            read=timeout_settings,  # read timeout
+            write=10.0,  # write timeout
+            pool=10.0  # pool timeout
+        ),
+        limits=httpx.Limits(
+            max_keepalive_connections=5,
+            max_connections=10,
+            keepalive_expiry=30.0
+        ),
+        # Don't use HTTP2 to avoid dependency issues
+        http2=False
+    )
+    
+    # Initialize OpenAI client
+    openai = OpenAI(
+        api_key=OPENAI_API_KEY,
+        timeout=timeout_settings,
+        max_retries=max_retries,
+        http_client=http_client
+    )
+    logging.info("OpenAI client initialized with custom HTTP client and timeout settings")
+except Exception as client_init_error:
+    logging.error(f"Error initializing OpenAI client with custom settings: {client_init_error}")
+    # Fall back to default client if custom initialization fails
+    openai = OpenAI(
+        api_key=OPENAI_API_KEY
+    )
+    logging.info("Initialized OpenAI client with default settings due to error with custom settings")
 
 def encode_image_to_base64(image_path):
     """Convert an image file to base64 encoding"""
@@ -418,34 +456,62 @@ Here's the extracted JSON data containing handwritten answers:
         # Call the OpenAI API
         start_time = time.time()
         
-        try:
-            # Using gpt-4.1-mini as requested by the user 
-            # Changed from gpt-4o to gpt-4.1-mini per user request
-            response = openai.chat.completions.create(
-                model="gpt-4.1-mini",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are an expert grading system for educational assessments. Grade handwritten answers against reference materials with fairness and accuracy."
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt + "\n\nNote: The PDF content has been included in this prompt text since we need to reference it."
-                            }
-                        ]
-                    }
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=4000,
-                temperature=0
-            )
-        except Exception as api_err:
-            elapsed_time = time.time() - start_time
-            logging.error(f"API error after {elapsed_time:.2f}s: {str(api_err)}")
-            raise
+        max_api_attempts = 2
+        current_attempt = 0
+        while current_attempt < max_api_attempts:
+            current_attempt += 1
+            try:
+                logging.info(f"Grading API attempt {current_attempt}/{max_api_attempts} for Standard {standard_num}")
+                
+                # Using gpt-4.1-mini as requested by the user 
+                # Changed from gpt-4o to gpt-4.1-mini per user request
+                response = openai.chat.completions.create(
+                    model="gpt-4.1-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an expert grading system for educational assessments. Grade handwritten answers against reference materials with fairness and accuracy."
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": prompt + "\n\nNote: The PDF content has been included in this prompt text since we need to reference it."
+                                }
+                            ]
+                        }
+                    ],
+                    response_format={"type": "json_object"},
+                    max_tokens=4000,
+                    temperature=0
+                )
+                # If we get here, the API call succeeded
+                break
+                
+            except (APITimeoutError, APIConnectionError, httpx.ReadTimeout, httpx.ConnectTimeout) as timeout_error:
+                elapsed_time = time.time() - start_time
+                logging.error(f"API timeout after {elapsed_time:.2f}s: {str(timeout_error)}")
+                
+                # If not the last attempt, retry after a delay
+                if current_attempt < max_api_attempts:
+                    retry_wait = 3 * current_attempt  # Incremental backoff
+                    logging.info(f"Waiting {retry_wait}s before retry...")
+                    time.sleep(retry_wait)
+                else:
+                    # Last attempt failed
+                    logging.error(f"All {max_api_attempts} API attempts failed for grading Standard {standard_num}")
+                    # Special handling for Standard 9
+                    if standard_num == '9':
+                        raise APIConnectionError(f"Could not connect to OpenAI API after {max_api_attempts} attempts: {str(timeout_error)}")
+                    else:
+                        raise
+            
+            except Exception as api_err:
+                elapsed_time = time.time() - start_time
+                logging.error(f"API error after {elapsed_time:.2f}s: {str(api_err)}")
+                # For non-timeout errors, don't retry
+                raise
         
         # Calculate and log API response time
         elapsed_time = time.time() - start_time
