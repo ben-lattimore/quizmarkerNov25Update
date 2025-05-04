@@ -19,11 +19,14 @@ except ImportError:
 # User has requested to use "gpt-4.1-mini" instead of the default "gpt-4o" model
 # This was changed from gpt-4o at the user's request
 
-# Configure OpenAI client with timeout and connection settings
+# Configure OpenAI client with improved timeout and connection settings
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-timeout_settings = 60.0  # 60 seconds timeout for API calls
+timeout_settings = 90.0  # 90 seconds timeout for API calls (increased from 60s)
 max_retries = 2  # Try up to 3 times total (1 initial + 2 retries)
-retry_delay = 2  # Wait 2 seconds between retries
+retry_delay = 3  # Wait 3 seconds between retries (increased for more breathing room)
+
+# Add detailed logging about API configuration
+logging.info(f"OpenAI configuration: Timeout={timeout_settings}s, Retries={max_retries}, Delay={retry_delay}s")
 api_timeout_error_msg = "OpenAI API request timed out. The service might be experiencing high load."
 
 # Initialize OpenAI client with improved timeout settings
@@ -463,6 +466,18 @@ Here's the extracted JSON data containing handwritten answers:
             try:
                 logging.info(f"Grading API attempt {current_attempt}/{max_api_attempts} for Standard {standard_num}")
                 
+                # Optimization for Standard 9 to prevent issues
+                if standard_num == '9':
+                    # Special shorter system prompt
+                    system_prompt = "Grade handwritten answers against the reference material provided."
+                    # Consider reducing tokens further if needed
+                    max_tokens_value = 2500
+                    logging.info(f"Using optimized settings for Standard 9: shorter system prompt and {max_tokens_value} max tokens")
+                else:
+                    # Normal system prompt for other standards
+                    system_prompt = "You are an expert grading system for educational assessments. Grade handwritten answers against reference materials with fairness and accuracy."
+                    max_tokens_value = 4000
+                
                 # Using gpt-4.1-mini as requested by the user 
                 # Changed from gpt-4o to gpt-4.1-mini per user request
                 response = openai.chat.completions.create(
@@ -470,7 +485,7 @@ Here's the extracted JSON data containing handwritten answers:
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are an expert grading system for educational assessments. Grade handwritten answers against reference materials with fairness and accuracy."
+                            "content": system_prompt
                         },
                         {
                             "role": "user",
@@ -483,7 +498,7 @@ Here's the extracted JSON data containing handwritten answers:
                         }
                     ],
                     response_format={"type": "json_object"},
-                    max_tokens=4000,
+                    max_tokens=max_tokens_value,
                     temperature=0
                 )
                 # If we get here, the API call succeeded

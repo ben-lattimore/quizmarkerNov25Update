@@ -499,12 +499,19 @@ def grade_answers_route():
         student_name = request.json.get('student_name', 'Unknown Student')
         quiz_title = request.json.get('quiz_title', f'Standard {standard_id} Quiz')
         
-        # Check for special ALWAYS_FALLBACK mode for Standard 9
+        # Check for optional fallback mode for Standard 9
         force_fallback = False
+        
+        # Only use fallback as a last resort
         if standard_id == 9:
-            # Use a special flag to guarantee fallback for Standard 9 to avoid API issues
-            force_fallback = True
-            logging.warning(f"IMPORTANT: FORCED FALLBACK activated for Standard 9 (ID: {standard_id})")
+            # Check for an explicit URL parameter that can enable fallback
+            force_fallback_param = request.args.get('force_fallback', 'false').lower() == 'true'
+            
+            if force_fallback_param:
+                force_fallback = True
+                logging.warning(f"Manual fallback mode activated for Standard 9 via URL parameter")
+            else:
+                logging.info(f"Attempting normal OpenAI grading for Standard 9 (ID: {standard_id})")
         
         logging.info(f"Request JSON: {request.json}")
         logging.info(f"Selected standard_id: {standard_id}, Student: {student_name}, Force fallback: {force_fallback}")
