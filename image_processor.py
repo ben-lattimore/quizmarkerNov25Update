@@ -6,8 +6,8 @@ import logging
 import traceback
 from openai import OpenAI, APITimeoutError, RateLimitError, BadRequestError
 
-# the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
-# do not change this unless explicitly requested by the user
+# User has requested to use "gpt-4.1-mini" instead of the default "gpt-4o" model
+# This was changed from gpt-4o at the user's request
 
 # Configure OpenAI client with timeout and connection settings
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -34,7 +34,7 @@ def encode_image_to_base64(image_path):
 
 def extract_text_from_image(image_path, max_attempts=3):
     """
-    Extract text from an image using GPT-4o vision with retry logic
+    Extract text from an image using GPT-4.1-mini vision with retry logic
     
     Args:
         image_path: Path to the image file
@@ -70,7 +70,7 @@ def extract_text_from_image(image_path, max_attempts=3):
             try:
                 # Use temperature=0 for more deterministic results
                 response = openai.chat.completions.create(
-                    model="gpt-4o",
+                    model="gpt-4.1-mini",
                     messages=[
                         {
                             "role": "system",
@@ -361,11 +361,10 @@ Here's the extracted JSON data containing handwritten answers:
         start_time = time.time()
         
         try:
-            # Use gpt-4o for optimal grading capability 
-            # the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
-            # do not change this unless explicitly requested by the user
+            # Using gpt-4.1-mini as requested by the user 
+            # Changed from gpt-4o to gpt-4.1-mini per user request
             response = openai.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-4.1-mini",
                 messages=[
                     {
                         "role": "system",
