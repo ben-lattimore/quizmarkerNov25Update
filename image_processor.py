@@ -44,8 +44,8 @@ try:
             max_connections=10,
             keepalive_expiry=30.0
         ),
-        # Don't use HTTP2 to avoid dependency issues
-        http2=False
+        # Enable HTTP/2 for better performance with OpenAI API
+        http2=True
     )
     
     # Initialize OpenAI client

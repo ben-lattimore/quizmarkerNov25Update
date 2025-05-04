@@ -545,6 +545,17 @@ def grade_answers_route():
         try:
             # Start the grading process 
             grading_start = time.time()
+            
+            # Additional logging for diagnostic purposes
+            if standard_id == 9:
+                logging.info("Detailed diagnostics for Standard 9 request:")
+                logging.info(f"- Image count: {len(valid_extractions)}")
+                logging.info(f"- Force fallback: {force_fallback}")
+                logging.info(f"- PDF exists: {os.path.exists(pdf_path)}")
+                if os.path.exists(pdf_path):
+                    logging.info(f"- PDF size: {os.path.getsize(pdf_path)/1024:.1f} KB")
+                logging.info(f"- OpenAI API key present: {'Yes' if os.environ.get('OPENAI_API_KEY') else 'No'}")
+            
             try:
                 # Special handling for Standard 9 - bypass OpenAI completely when force_fallback is enabled
                 if standard_id == 9 and force_fallback:
