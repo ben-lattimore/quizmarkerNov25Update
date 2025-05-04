@@ -300,7 +300,9 @@ def grade_answers(extracted_data, pdf_path):
         A list of dictionaries with the graded results
     """
     try:
-        logging.info(f"Starting grading process for {len(extracted_data)} uploaded images against {pdf_path}")
+        standard_num = os.path.basename(pdf_path).replace("Standard-", "").replace(".pdf", "")
+        logging.info(f"Starting grading process for {len(extracted_data)} uploaded images against Standard-{standard_num}")
+        logging.info(f"PDF path: {pdf_path}, exists: {os.path.exists(pdf_path)}, size: {os.path.getsize(pdf_path) if os.path.exists(pdf_path) else 'N/A'}")
         
         import PyPDF2
         
@@ -308,18 +310,35 @@ def grade_answers(extracted_data, pdf_path):
         pdf_text = ""
         try:
             with open(pdf_path, "rb") as pdf_file:
+                logging.info(f"Successfully opened PDF file: {pdf_path}")
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
-                for page_num in range(len(pdf_reader.pages)):
-                    page = pdf_reader.pages[page_num]
-                    pdf_text += page.extract_text() + "\n\n"
+                total_pages = len(pdf_reader.pages)
+                logging.info(f"PDF has {total_pages} pages")
+                
+                for page_num in range(total_pages):
+                    try:
+                        page = pdf_reader.pages[page_num]
+                        page_text = page.extract_text()
+                        pdf_text += page_text + "\n\n"
+                        if page_num < 2 or page_num > total_pages - 3:
+                            logging.debug(f"Page {page_num+1} extracted: {len(page_text)} chars")
+                    except Exception as page_error:
+                        logging.error(f"Error extracting page {page_num+1}: {str(page_error)}")
                     
             # Trim if too long to fit in prompt
-            if len(pdf_text) > 10000:
-                pdf_text = pdf_text[:10000] + "... (content truncated)"
+            original_length = len(pdf_text)
+            if original_length > 10000:
+                pdf_text = pdf_text[:10000] + f"... (content truncated, original length: {original_length} chars)"
                 
-            logging.info(f"Successfully extracted {len(pdf_text)} characters from PDF")
+            logging.info(f"Successfully extracted {len(pdf_text)} characters from PDF (original: {original_length})")
+            
+            # Check if we actually got content
+            if len(pdf_text.strip()) < 100:
+                logging.warning(f"PDF text extraction yielded very little text ({len(pdf_text.strip())} chars)")
+                
         except Exception as pdf_error:
             logging.error(f"Error extracting PDF text: {pdf_error}")
+            logging.error(f"PDF error traceback: {traceback.format_exc()}")
             pdf_text = f"[Error extracting PDF content: {str(pdf_error)}]"
         
         # Convert the extracted_data to a formatted string for the prompt
@@ -328,6 +347,29 @@ def grade_answers(extracted_data, pdf_path):
         # Determine which standard we're grading against
         standard_num = os.path.basename(pdf_path).replace("Standard-", "").replace(".pdf", "")
         logging.info(f"Grading against Standard {standard_num}")
+        
+        # Add special handling for Standard-9, which may have issues
+        standard_nine_desc = ""
+        if standard_num == "9" and (len(pdf_text.strip()) < 500 or "[Error extracting PDF content" in pdf_text):
+            logging.warning("Standard 9 detected with potential extraction issues, adding fallback content")
+            standard_nine_desc = """
+Standard 9 covers Mental Health, Dementia and Learning Disabilities. Key points include:
+- Understanding the needs of people with mental health conditions, dementia, and learning disabilities
+- Recognizing signs of mental health conditions like depression, anxiety, and psychosis
+- Understanding how to support individuals with dementia and learning disabilities
+- Promoting positive attitudes and reducing stigma
+- Person-centered approaches to care
+- Supporting independence and encouraging active participation
+- The importance of early detection and intervention
+- Understanding legal frameworks including Mental Capacity Act
+"""
+            # Append this to the extracted text if we had issues
+            if len(pdf_text.strip()) < 500:
+                pdf_text = standard_nine_desc + "\n\n" + pdf_text
+            elif "[Error extracting PDF content" in pdf_text:
+                pdf_text = standard_nine_desc
+            
+            logging.info(f"Added Standard 9 fallback content, pdf_text now {len(pdf_text)} chars")
         
         # Construct a prompt based on the specific standard
         prompt = f"""You are an expert in grading handwritten answers against reference materials. 

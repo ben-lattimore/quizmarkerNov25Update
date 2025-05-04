@@ -517,16 +517,31 @@ def grade_answers_route():
         
         # Check if the reference PDF exists
         if not os.path.exists(pdf_path):
+            logging.error(f"PDF not found: {pdf_path}")
             return jsonify({'error': f'Reference PDF for Standard {standard_id} not found.'}), 500
+            
+        # Log PDF file info
+        try:
+            pdf_size = os.path.getsize(pdf_path) / 1024  # Size in KB
+            logging.info(f"PDF file info: {pdf_filename}, size: {pdf_size:.1f} KB")
+        except Exception as file_error:
+            logging.warning(f"Could not get PDF file info: {str(file_error)}")
         
         # Grade the answers
         try:
+            logging.info(f"Starting grading with Standard {standard_id} PDF...")
             grading_start = time.time()
             grading_results = grade_answers(valid_extractions, pdf_path)
             grading_time = time.time() - grading_start
             
+            # Check if we got valid results
+            if not grading_results:
+                logging.error("Empty grading results returned")
+                return jsonify({'error': 'Grading process returned empty results'}), 500
+                
             # Log more details about the grading results structure
-            logging.debug(f"Grading results structure: {json.dumps(grading_results, indent=2)}")
+            grading_results_str = json.dumps(grading_results, indent=2)
+            logging.debug(f"Grading results structure: {grading_results_str[:500]}...")
             logging.info(f"Graded answers in {grading_time:.2f} seconds")
             
             # Store the quiz results in the database
