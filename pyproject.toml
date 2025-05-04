@@ -16,4 +16,5 @@ dependencies = [
     "flask-wtf>=1.2.2",
     "sendgrid>=6.11.0",
     "wtforms>=3.2.1",
+    "sqlalchemy>=2.0.40",
 ]
