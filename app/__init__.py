@@ -8,9 +8,11 @@ configuration management, and blueprint organization.
 import os
 import logging
 import json
-from flask import Flask
-from flask_login import LoginManager
+from flask import Flask, request
+from flask_login import LoginManager, current_user
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -21,6 +23,28 @@ from database import db
 
 # Initialize Flask-Login
 login_manager = LoginManager()
+
+# Custom key function for rate limiting
+def get_limiter_key():
+    """
+    Use user ID for authenticated requests, IP for anonymous
+    This allows per-user rate limiting instead of per-IP
+    """
+    try:
+        from flask_login import current_user
+        if current_user and current_user.is_authenticated:
+            return f"user-{current_user.id}"
+    except:
+        pass
+    return get_remote_address()
+
+
+# Initialize Flask-Limiter
+limiter = Limiter(
+    key_func=get_limiter_key,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
 
 
 def create_app(config_name=None):
@@ -154,7 +178,10 @@ def initialize_extensions(app):
          resources={r"/api/*": {"origins": app.config['CORS_ORIGINS']}},
          supports_credentials=True)
 
-    logger.info("Extensions initialized successfully")
+    # Initialize Rate Limiter
+    limiter.init_app(app)
+
+    logger.info("Extensions initialized successfully (including rate limiter)")
 
 
 def register_blueprints(app):
@@ -188,3 +215,7 @@ def allowed_file(filename, app=None):
 
     allowed_extensions = app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf'})
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
+
+
+# Export limiter for use in blueprints
+__all__ = ['create_app', 'limiter', 'allowed_file']

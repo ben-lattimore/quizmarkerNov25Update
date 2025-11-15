@@ -10,6 +10,7 @@ from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash
 
 from app.api.v1 import api_v1_bp
+from app import limiter
 from app.schemas import RegisterSchema, LoginSchema, ForgotPasswordSchema, ResetPasswordSchema
 from app.utils.validation import validate_request
 from database import db
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 @api_v1_bp.route('/auth/register', methods=['POST'])
+@limiter.limit("5 per hour")  # Prevent mass account creation
 @validate_request(RegisterSchema)
 def register(validated_data):
     """
@@ -104,6 +106,7 @@ def register(validated_data):
 
 
 @api_v1_bp.route('/auth/login', methods=['POST'])
+@limiter.limit("10 per minute")  # Prevent brute force attacks
 @validate_request(LoginSchema)
 def login(validated_data):
     """
@@ -239,6 +242,7 @@ def get_current_user():
 
 
 @api_v1_bp.route('/auth/forgot-password', methods=['POST'])
+@limiter.limit("3 per hour")  # Prevent email spam
 def forgot_password():
     """
     Request password reset

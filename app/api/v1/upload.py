@@ -13,6 +13,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 
 from app.api.v1 import api_v1_bp
+from app import limiter
 from image_processor import process_images
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ def allowed_file(filename):
 
 @api_v1_bp.route('/upload', methods=['POST'])
 @login_required
+@limiter.limit("20 per hour")  # Expensive operation - limit to prevent abuse
 def upload_files():
     """
     Upload and process image files

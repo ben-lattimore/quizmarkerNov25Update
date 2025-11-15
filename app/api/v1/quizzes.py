@@ -9,6 +9,7 @@ from flask import request, jsonify
 from flask_login import login_required, current_user
 
 from app.api.v1 import api_v1_bp
+from app import limiter
 from database import db
 from models import Quiz, QuizSubmission, QuizQuestion, Student
 

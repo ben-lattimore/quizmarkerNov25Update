@@ -13,6 +13,7 @@ from flask import request, jsonify, url_for, current_app
 from flask_login import login_required, current_user
 
 from app.api.v1 import api_v1_bp
+from app import limiter
 from app.schemas import GradeQuizSchema
 from app.utils.validation import validate_request
 from database import db
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 @api_v1_bp.route('/grade', methods=['POST'])
 @login_required
+@limiter.limit("15 per hour")  # Expensive AI operation - strict limit
 @validate_request(GradeQuizSchema)
 def grade_quiz(validated_data):
     """
