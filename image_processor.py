@@ -58,11 +58,15 @@ try:
     logging.info("OpenAI client initialized with custom HTTP client and timeout settings")
 except Exception as client_init_error:
     logging.error(f"Error initializing OpenAI client with custom settings: {client_init_error}")
-    # Fall back to default client if custom initialization fails
-    openai = OpenAI(
-        api_key=OPENAI_API_KEY
-    )
-    logging.info("Initialized OpenAI client with default settings due to error with custom settings")
+    # Fall back to default client if custom initialization fails and API key is set
+    if OPENAI_API_KEY:
+        openai = OpenAI(
+            api_key=OPENAI_API_KEY
+        )
+        logging.info("Initialized OpenAI client with default settings due to error with custom settings")
+    else:
+        logging.warning("OPENAI_API_KEY not set. OpenAI functionality will be limited.")
+        openai = None
 
 def encode_image_to_base64(image_path):
     """Convert an image file to base64 encoding"""
