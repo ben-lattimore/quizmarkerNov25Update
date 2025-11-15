@@ -172,7 +172,210 @@ def new_route():
 - Consider combined approach for batch operations
 
 **Database operations**:
-- Import models: `from models import User, Student, Quiz, QuizSubmission, QuizQuestion`
+- Import models: `from models import User, Student, Quiz, QuizSubmission, QuizQuestion, Organization, OrganizationMember, APIUsageLog`
 - Use relationships to avoid N+1 queries
 - Always handle exceptions with rollback
 - Check permissions before allowing access to data
+
+## Multi-Tenancy Patterns (Phase 2)
+
+QuizMarker now implements organization-based multi-tenancy for B2B/SaaS functionality. **CRITICAL**: All data access must enforce organization-level isolation to prevent data leakage between organizations.
+
+### Organization Data Model
+
+**Core Entities**:
+- `Organization`: The tenant/company entity (free/pro/enterprise plans)
+- `OrganizationMember`: Maps users to organizations with roles (owner/admin/member)
+- `APIUsageLog`: Tracks API usage for billing and analytics
+
+**Organization Fields on Existing Models**:
+- `User.default_organization_id` - User's primary organization
+- `Quiz.organization_id` - Which organization owns this quiz (NOT NULL)
+- `Student.organization_id` - Which organization owns this student (NOT NULL)
+
+### Data Isolation Pattern
+
+**ALWAYS filter queries by organization_id** to prevent cross-organization data access:
+
+```python
+from app.utils import get_user_organization_ids, filter_by_organization
+
+# Get user's accessible organization IDs
+user_org_ids = get_user_organization_ids(current_user)
+
+# Filter queries by organization
+if current_user.is_super_admin:
+    # Super admins see everything
+    quizzes = Quiz.query.all()
+else:
+    # Regular users only see their organizations' data
+    quizzes = Quiz.query.filter(Quiz.organization_id.in_(user_org_ids)).all()
+
+    # Or use the helper function
+    quizzes = filter_by_organization(Quiz.query, Quiz).all()
+```
+
+**NEVER** query without organization filtering unless you're a super admin endpoint:
+
+```python
+# ❌ BAD - Can see all students across all organizations
+students = Student.query.all()
+
+# ✅ GOOD - Only see students from user's organizations
+students = Student.query.filter(Student.organization_id.in_(user_org_ids)).all()
+```
+
+### Permission Decorators
+
+Use permission decorators for route-level organization access control:
+
+```python
+from app.utils import (
+    require_organization_access,  # Any member
+    require_organization_admin,   # Admin or owner only
+    require_organization_owner    # Owner only
+)
+
+@api_v1_bp.route('/organizations/<int:organization_id>/members', methods=['GET'])
+@login_required
+@require_organization_access  # Any member can view members
+def list_members(organization_id):
+    organization = g.current_organization  # Set by decorator
+    # ... implementation
+
+@api_v1_bp.route('/organizations/<int:organization_id>/members', methods=['POST'])
+@login_required
+@require_organization_admin  # Only admins can add members
+def add_member(organization_id):
+    organization = g.current_organization
+    # ... implementation
+
+@api_v1_bp.route('/organizations/<int:organization_id>', methods=['DELETE'])
+@login_required
+@require_organization_owner  # Only owner can delete
+def delete_organization(organization_id):
+    organization = g.current_organization
+    # ... implementation
+```
+
+### Plan Limits and Usage Tracking
+
+**Enforce plan limits before creating quizzes**:
+
+```python
+from models import Organization
+
+# Check if organization can create quiz
+if not current_user.is_super_admin:
+    organization = Organization.query.get(current_user.default_organization_id)
+    can_create, error_message = organization.can_create_quiz()
+
+    if not can_create:
+        return jsonify({
+            'success': False,
+            'error': error_message,
+            'code': 'PLAN_LIMIT_EXCEEDED',
+            'details': {
+                'plan': organization.plan,
+                'quiz_limit': organization.max_quizzes_per_month,
+                'quizzes_this_month': organization.get_quiz_count_this_month()
+            }
+        }), 403
+```
+
+**Track API usage for billing**:
+
+```python
+from app.utils import track_openai_tokens
+
+# In endpoints that use OpenAI API
+tokens_used = response.usage.total_tokens  # From OpenAI response
+track_openai_tokens(tokens_used)  # Automatically logged by middleware
+```
+
+### Creating Organization-Scoped Data
+
+**When creating quizzes, students, or submissions**, always associate with organization:
+
+```python
+# For regular users - use their default organization
+organization_id = current_user.default_organization_id if not current_user.is_super_admin else None
+
+# Create student scoped to organization
+student = Student.query.filter_by(
+    name=student_name,
+    organization_id=organization_id
+).first()
+
+if not student:
+    student = Student(
+        name=student_name,
+        organization_id=organization_id  # CRITICAL: Always set this
+    )
+    db.session.add(student)
+
+# Create quiz scoped to organization
+quiz = Quiz(
+    title=quiz_title,
+    standard_id=standard_id,
+    user_id=current_user.id,
+    organization_id=organization_id  # CRITICAL: Always set this
+)
+db.session.add(quiz)
+```
+
+### Common Organization Helpers
+
+```python
+from app.utils import (
+    get_user_organizations,           # Get all orgs user belongs to
+    get_user_organization_ids,        # Get org IDs as list
+    get_organization_role,            # Get user's role in org
+    user_can_access_organization,     # Check if user has access
+    user_is_organization_admin,       # Check if user is admin/owner
+    user_is_organization_owner,       # Check if user is owner
+    ensure_organization_access        # Verify access or 403
+)
+
+# Example: Check user's role before allowing action
+role = get_organization_role(current_user, organization_id)
+if role not in ['admin', 'owner']:
+    return jsonify({'error': 'Permission denied'}), 403
+
+# Example: Verify access
+if not user_can_access_organization(current_user, organization_id):
+    return jsonify({'error': 'Access denied'}), 403
+```
+
+### Security Checklist
+
+When adding new endpoints or features:
+
+- [ ] Does this endpoint filter queries by `organization_id`?
+- [ ] Does this endpoint check organization membership before returning data?
+- [ ] Are super admins exempt from organization filtering (if appropriate)?
+- [ ] Does creating data set the correct `organization_id`?
+- [ ] Are plan limits checked before allowing resource creation?
+- [ ] Is API usage tracked for billing purposes?
+- [ ] Are permission decorators applied correctly?
+
+### Testing Multi-Tenancy
+
+Always test data isolation:
+
+```python
+# Create two organizations with different users
+org1 = Organization(name="Org 1", plan="free")
+org2 = Organization(name="Org 2", plan="pro")
+
+user1 = User(username="user1", default_organization_id=org1.id)
+user2 = User(username="user2", default_organization_id=org2.id)
+
+# Create data in each org
+quiz1 = Quiz(title="Quiz 1", organization_id=org1.id)
+quiz2 = Quiz(title="Quiz 2", organization_id=org2.id)
+
+# Verify user1 cannot see quiz2
+# Verify user2 cannot see quiz1
+# Verify super admin can see both
+```

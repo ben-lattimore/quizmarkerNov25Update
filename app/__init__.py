@@ -181,7 +181,11 @@ def initialize_extensions(app):
     # Initialize Rate Limiter
     limiter.init_app(app)
 
-    logger.info("Extensions initialized successfully (including rate limiter)")
+    # Initialize Usage Tracking Middleware
+    from app.utils import init_usage_tracking
+    init_usage_tracking(app)
+
+    logger.info("Extensions initialized successfully (including rate limiter and usage tracking)")
 
 
 def register_blueprints(app):

@@ -18,6 +18,19 @@ from app.schemas.quiz import (
     QuizStatsSchema
 )
 
+from app.schemas.organization import (
+    OrganizationSchema,
+    CreateOrganizationSchema,
+    UpdateOrganizationSchema,
+    OrganizationMemberSchema,
+    AddOrganizationMemberSchema,
+    UpdateOrganizationMemberSchema,
+    APIUsageLogSchema,
+    OrganizationUsageQuerySchema,
+    OrganizationUsageStatsSchema,
+    OrganizationListQuerySchema
+)
+
 __all__ = [
     'RegisterSchema',
     'LoginSchema',
@@ -27,4 +40,14 @@ __all__ = [
     'QuizSubmissionSchema',
     'QuizQuestionSchema',
     'QuizStatsSchema',
+    'OrganizationSchema',
+    'CreateOrganizationSchema',
+    'UpdateOrganizationSchema',
+    'OrganizationMemberSchema',
+    'AddOrganizationMemberSchema',
+    'UpdateOrganizationMemberSchema',
+    'APIUsageLogSchema',
+    'OrganizationUsageQuerySchema',
+    'OrganizationUsageStatsSchema',
+    'OrganizationListQuerySchema',
 ]

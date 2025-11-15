@@ -447,6 +447,432 @@ files[]: File[] (images: JPG, PNG, GIF, WEBP, PDF)
 
 ---
 
+### Organization Management Endpoints (API v1)
+
+#### GET /api/v1/organizations
+**Purpose**: List all organizations the current user has access to
+
+**Methods**: `GET`
+
+**Authentication**: Required (`@login_required`)
+
+**Query Parameters**:
+- `page` (integer, default: 1) - Page number
+- `per_page` (integer, default: 10, max: 100) - Results per page
+- `active_only` (boolean, default: true) - Show only active organizations
+
+**Response**:
+```json
+{
+  "success": true,
+  "organizations": [
+    {
+      "id": 1,
+      "name": "Acme Care Training",
+      "plan": "pro",
+      "max_quizzes_per_month": 100,
+      "active": true,
+      "created_at": "2025-11-15T10:30:00",
+      "member_count": 5,
+      "quiz_count": 23
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "per_page": 10,
+    "total": 1,
+    "pages": 1
+  }
+}
+```
+
+**Notes**:
+- Returns organizations where user is a member (any role)
+- Includes member count and quiz count for each organization
+- Rate limited to global limits
+
+---
+
+#### POST /api/v1/organizations
+**Purpose**: Create a new organization
+
+**Methods**: `POST`
+
+**Authentication**: Required (`@login_required`)
+
+**Rate Limit**: 5 per hour
+
+**Request**:
+```json
+{
+  "name": "New Organization Name",
+  "plan": "free"  // "free", "pro", or "enterprise"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Organization created successfully",
+  "organization": {
+    "id": 2,
+    "name": "New Organization Name",
+    "plan": "free",
+    "max_quizzes_per_month": 10,
+    "active": true,
+    "created_at": "2025-11-15T11:00:00",
+    "member_count": 1,
+    "quiz_count": 0
+  }
+}
+```
+
+**Validation**:
+- `name`: 2-200 characters, alphanumeric + spaces/apostrophes/hyphens/periods
+- `plan`: Must be "free", "pro", or "enterprise"
+
+**Notes**:
+- Current user automatically becomes the organization owner
+- If user has no default organization, this becomes their default
+- Creates initial OrganizationMember record with role='owner'
+
+---
+
+#### GET /api/v1/organizations/<organization_id>
+**Purpose**: Get details of a specific organization
+
+**Methods**: `GET`
+
+**Authentication**: Required (`@login_required` + `@require_organization_access`)
+
+**Response**:
+```json
+{
+  "success": true,
+  "organization": {
+    "id": 1,
+    "name": "Acme Care Training",
+    "plan": "pro",
+    "max_quizzes_per_month": 100,
+    "active": true,
+    "created_at": "2025-11-15T10:30:00",
+    "member_count": 5,
+    "quiz_count": 23,
+    "quiz_count_this_month": 8,
+    "quizzes_remaining": 92,
+    "your_role": "admin"
+  }
+}
+```
+
+**Authorization**:
+- User must be a member of the organization
+- Returns 403 if user does not have access
+
+**Notes**:
+- Includes current month's quiz usage
+- Shows user's role in the organization
+
+---
+
+#### PUT /api/v1/organizations/<organization_id>
+**Purpose**: Update organization details
+
+**Methods**: `PUT`
+
+**Authentication**: Required (`@login_required` + `@require_organization_admin`)
+
+**Request**:
+```json
+{
+  "name": "Updated Name",
+  "plan": "pro",
+  "max_quizzes_per_month": 150,
+  "active": false  // Owner only
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Organization updated successfully",
+  "organization": {
+    "id": 1,
+    "name": "Updated Name",
+    "plan": "pro",
+    "max_quizzes_per_month": 150,
+    "active": false
+  }
+}
+```
+
+**Authorization**:
+- Admin or owner access required
+- Only owners can change `active` status
+
+**Validation**:
+- Same validation rules as creation
+
+---
+
+#### DELETE /api/v1/organizations/<organization_id>
+**Purpose**: Delete an organization (CASCADE deletes all data)
+
+**Methods**: `DELETE`
+
+**Authentication**: Required (`@login_required` + `@require_organization_owner`)
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Organization deleted successfully"
+}
+```
+
+**Authorization**:
+- Owner access required
+- Returns 403 for non-owners
+
+**Warning**:
+- DESTRUCTIVE operation - deletes organization and ALL associated data
+- Cascade deletes: members, quizzes, students, submissions, questions
+- Cannot be undone
+
+---
+
+#### GET /api/v1/organizations/<organization_id>/members
+**Purpose**: List all members of an organization
+
+**Methods**: `GET`
+
+**Authentication**: Required (`@login_required` + `@require_organization_access`)
+
+**Response**:
+```json
+{
+  "success": true,
+  "members": [
+    {
+      "id": 1,
+      "role": "owner",
+      "joined_at": "2025-11-15T10:30:00",
+      "user": {
+        "id": 5,
+        "username": "john_doe",
+        "email": "john@acme.com"
+      }
+    }
+  ],
+  "total": 5
+}
+```
+
+**Notes**:
+- Any member can view the member list
+- Includes user details for each member
+
+---
+
+#### POST /api/v1/organizations/<organization_id>/members
+**Purpose**: Add a new member to the organization
+
+**Methods**: `POST`
+
+**Authentication**: Required (`@login_required` + `@require_organization_admin`)
+
+**Rate Limit**: 10 per hour
+
+**Request**:
+```json
+{
+  "email": "newuser@example.com",
+  "role": "member"  // "admin" or "member"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Member added successfully",
+  "member": {
+    "id": 6,
+    "role": "member",
+    "joined_at": "2025-11-15T12:00:00",
+    "user": {
+      "id": 12,
+      "username": "newuser",
+      "email": "newuser@example.com"
+    }
+  }
+}
+```
+
+**Authorization**:
+- Admin or owner access required
+
+**Validation**:
+- User must exist in the database (looked up by email)
+- User cannot already be a member of the organization
+- Role cannot be "owner" (only admins can assign admin/member roles)
+
+**Error Responses**:
+- 404: User not found with that email
+- 400: User already a member
+
+---
+
+#### PUT /api/v1/organizations/<organization_id>/members/<user_id>
+**Purpose**: Update a member's role
+
+**Methods**: `PUT`
+
+**Authentication**: Required (`@login_required` + `@require_organization_admin`)
+
+**Request**:
+```json
+{
+  "role": "admin"  // "owner", "admin", or "member"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Member role updated successfully",
+  "member": {
+    "id": 6,
+    "role": "admin",
+    "user": {
+      "id": 12,
+      "username": "newuser",
+      "email": "newuser@example.com"
+    }
+  }
+}
+```
+
+**Authorization**:
+- Admin or owner access required
+- Only owners can assign the "owner" role
+- Returns 403 if insufficient permissions
+
+---
+
+#### DELETE /api/v1/organizations/<organization_id>/members/<user_id>
+**Purpose**: Remove a member from the organization
+
+**Methods**: `DELETE`
+
+**Authentication**: Required (`@login_required` + `@require_organization_admin`)
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "Member removed successfully"
+}
+```
+
+**Authorization**:
+- Admin or owner access required
+
+**Restrictions**:
+- Cannot remove yourself (use leave endpoint instead)
+- Cannot remove the owner (must transfer ownership first)
+- Returns 400 if attempting to remove self or owner
+
+---
+
+#### GET /api/v1/organizations/<organization_id>/usage
+**Purpose**: Get usage statistics for an organization
+
+**Methods**: `GET`
+
+**Authentication**: Required (`@login_required` + `@require_organization_access`)
+
+**Query Parameters**:
+- `start_date` (string, YYYY-MM-DD, optional) - Start of date range
+- `end_date` (string, YYYY-MM-DD, optional) - End of date range
+- `include_details` (boolean, default: false) - Include detailed usage logs
+
+**Response**:
+```json
+{
+  "success": true,
+  "usage": {
+    "organization_id": 1,
+    "organization_name": "Acme Care Training",
+    "total_api_calls": 145,
+    "total_openai_tokens": 125000,
+    "quiz_count_this_month": 8,
+    "quiz_limit": 100,
+    "quizzes_remaining": 92,
+    "plan": "pro",
+    "active": true,
+    "period_start": "2025-11-01",
+    "period_end": "2025-11-30",
+    "usage_details": [  // Only if include_details=true
+      {
+        "id": 1,
+        "endpoint": "/api/v1/grade",
+        "method": "POST",
+        "status_code": 200,
+        "timestamp": "2025-11-15T10:30:00",
+        "openai_tokens_used": 1250,
+        "user": {
+          "id": 5,
+          "username": "john_doe"
+        }
+      }
+    ]
+  }
+}
+```
+
+**Notes**:
+- Used for billing and analytics
+- Any organization member can view usage stats
+- Details include individual API calls with token counts
+
+---
+
+### Multi-Tenancy & Data Isolation
+
+All quiz-related endpoints now enforce organization-based data isolation:
+
+**Organization Filtering**:
+- Regular users only see data from their organizations
+- Super admins can see all data across all organizations
+- All queries filter by `organization_id`
+
+**Plan Limits**:
+- Free plan: 10 quizzes per month
+- Pro plan: 100 quizzes per month
+- Enterprise plan: Custom limits
+
+**Grading Endpoint Changes**:
+- `POST /api/v1/grade` now requires user to belong to an organization
+- Checks plan limits before allowing quiz creation
+- Returns 403 with plan details if limit exceeded
+- Associates created quizzes and students with user's organization
+
+**Upload Endpoint Changes**:
+- `POST /api/v1/upload` verifies user has an active organization
+- Returns 403 if organization is inactive
+
+**Quiz Endpoints Changes**:
+- `GET /api/v1/quizzes` - Filters by user's organizations
+- `GET /api/v1/quizzes/<id>` - Verifies organization access
+- `DELETE /api/v1/quizzes/<id>` - Verifies organization access
+- `GET /api/v1/quizzes/stats` - Statistics scoped to user's organizations
+
+---
+
 ### Admin Endpoints
 
 #### GET/POST /admin/clean_database
@@ -640,4 +1066,4 @@ curl -X POST http://localhost:5000/grade \
 
 ---
 
-*Last Updated: November 15, 2025 - Phase 1 Migration*
+*Last Updated: November 15, 2025 - Phase 2 Multi-Tenancy Complete*

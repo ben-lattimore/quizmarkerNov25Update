@@ -52,6 +52,7 @@ class QuizSubmissionSchema(Schema):
     submission_date = fields.DateTime()
     total_mark = fields.Float()
     question_count = fields.Int()
+    organization_id = fields.Int(dump_only=True)
     questions = fields.List(fields.Nested(QuizQuestionSchema), dump_only=True)
 
 
@@ -72,6 +73,10 @@ class QuizListQuerySchema(Schema):
     standard_id = fields.Int(
         load_default=None,
         validate=validate.Range(min=1, max=20)
+    )
+    organization_id = fields.Int(
+        load_default=None,
+        validate=validate.Range(min=1, error="Organization ID must be positive")
     )
 
 

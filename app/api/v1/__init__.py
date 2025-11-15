@@ -11,7 +11,7 @@ from flask import Blueprint
 api_v1_bp = Blueprint('api_v1', __name__)
 
 # Import routes after blueprint creation to avoid circular imports
-from app.api.v1 import auth, quizzes, upload, grading, standards
+from app.api.v1 import auth, quizzes, upload, grading, standards, organizations
 
 # Register sub-blueprints or routes
 # Routes are automatically registered when imported above
@@ -27,6 +27,7 @@ def index():
         'endpoints': {
             'auth': '/api/v1/auth/*',
             'quizzes': '/api/v1/quizzes/*',
+            'organizations': '/api/v1/organizations/*',
             'upload': '/api/v1/upload',
             'grade': '/api/v1/grade',
             'standards': '/api/v1/standards'

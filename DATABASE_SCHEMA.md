@@ -9,73 +9,226 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 **ORM**: SQLAlchemy 2.0.40+
 **Migrations**: Manual (using `db.create_all()`) - **Note**: Phase 2 will introduce Alembic for proper migrations
 
-## Entity Relationship Diagram
+## Entity Relationship Diagram (Phase 2 - Multi-Tenancy)
 
 ```
+┌──────────────────────┐
+│   Organization       │
+│ (B2B Tenant/Company) │
+└──────┬───────────────┘
+       │
+       │ 1:N (members)
+       ├───────────────────────┐
+       │                       │
+       ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐
+│OrganizationMember│    │   APIUsageLog   │
+│ (Team Members)   │    │  (Billing/Analytics)│
+└─────────┬────────┘    └──────────────────┘
+          │
+          │ N:1 (user)
+          ▼
 ┌─────────────────┐
-│      User       │
-│  (Markers)      │
-└────────┬────────┘
-         │
-         │ 1:N (marked_quizzes)
-         │
-         ▼
-┌─────────────────┐         ┌──────────────────┐
-│      Quiz       │         │     Student      │
-│   (Metadata)    │         │   (Quiz Takers)  │
-└────────┬────────┘         └────────┬─────────┘
-         │                           │
-         │ 1:N                       │ 1:N
-         │ (submissions)             │ (quiz_submissions)
-         │                           │
-         └──────────┬────────────────┘
-                    │
-                    ▼
-         ┌─────────────────────┐
-         │  QuizSubmission     │
-         │  (Graded Quizzes)   │
-         └──────────┬──────────┘
-                    │
-                    │ 1:N (questions)
-                    │ CASCADE DELETE
-                    ▼
-         ┌─────────────────────┐
-         │   QuizQuestion      │
-         │ (Individual Q&A)    │
-         └─────────────────────┘
+│      User       │───┐ default_organization_id
+│  (Markers)      │   │
+└────────┬────────┘   │
+         │            │
+         │ 1:N        │
+         │ (marked    │
+         │  quizzes)  │
+         ▼            ▼
+┌─────────────────┐  ┌──────────────────┐
+│      Quiz       │  │   Organization   │
+│   (Metadata)    │──┤   (FK)           │
+└────────┬────────┘  └──────────────────┘
+         │           ┌──────────────────┐
+         │           │     Student      │
+         │           │   (Quiz Takers)  │──┤ organization_id
+         │           └────────┬─────────┘  │
+         │                    │            │
+         │ 1:N                │ 1:N        │
+         │ (submissions)      │            │
+         │                    │            │
+         └──────────┬─────────┘            │
+                    │                      │
+                    ▼                      │
+         ┌─────────────────────┐          │
+         │  QuizSubmission     │          │
+         │  (Graded Quizzes)   │          │
+         └──────────┬──────────┘          │
+                    │                     │
+                    │ 1:N (questions)     │
+                    │ CASCADE DELETE      │
+                    ▼                     │
+         ┌─────────────────────┐         │
+         │   QuizQuestion      │         │
+         │ (Individual Q&A)    │         │
+         └─────────────────────┘         │
+                                         │
+         All data isolated by ───────────┘
+         organization_id
 ```
 
 ---
 
 ## Table Definitions
 
-### 1. User Table
+### 1. Organization Table (Phase 2 - Multi-Tenancy)
+
+**Purpose**: Stores organization/tenant information for B2B/SaaS multi-tenancy
+
+**Table Name**: `organization`
+
+| Column Name              | Data Type    | Constraints                | Description                                    |
+|--------------------------|--------------|----------------------------|------------------------------------------------|
+| `id`                     | Integer      | PRIMARY KEY, AUTO_INCREMENT | Unique organization identifier                 |
+| `name`                   | String(200)  | NOT NULL                   | Organization name                              |
+| `plan`                   | String(50)   | DEFAULT 'free'             | Subscription plan (free/pro/enterprise)        |
+| `max_quizzes_per_month`  | Integer      | DEFAULT 10                 | Monthly quiz limit based on plan               |
+| `active`                 | Boolean      | DEFAULT TRUE               | Subscription active status                     |
+| `created_at`             | DateTime     | DEFAULT utcnow()           | Organization creation timestamp                |
+
+**Indexes**:
+- Primary Key: `id`
+- Index: `name` (for search/lookup)
+
+**Relationships**:
+- `members` → One-to-Many with `OrganizationMember` (via `organization_id`)
+- `quizzes` → One-to-Many with `Quiz` (via `organization_id`)
+- `students` → One-to-Many with `Student` (via `organization_id`)
+- `usage_logs` → One-to-Many with `APIUsageLog` (via `organization_id`)
+
+**Methods**:
+- `can_create_quiz()` - Check if organization can create quiz based on plan limits
+- `get_quiz_count_this_month()` - Count quizzes created this month
+- `__repr__()` - String representation: `<Organization name>`
+
+**Notes**:
+- Central entity for multi-tenancy data isolation
+- Plan determines quiz limits: free=10, pro=100, enterprise=custom
+- Inactive organizations cannot create new quizzes
+- Deleting organization CASCADE deletes all associated data
+
+---
+
+### 2. OrganizationMember Table (Phase 2 - Multi-Tenancy)
+
+**Purpose**: Maps users to organizations with role-based permissions
+
+**Table Name**: `organization_member`
+
+| Column Name       | Data Type    | Constraints                           | Description                                    |
+|-------------------|--------------|---------------------------------------|------------------------------------------------|
+| `id`              | Integer      | PRIMARY KEY, AUTO_INCREMENT           | Unique membership identifier                   |
+| `organization_id` | Integer      | FOREIGN KEY (organization.id), NOT NULL | Reference to organization                    |
+| `user_id`         | Integer      | FOREIGN KEY (user.id), NOT NULL       | Reference to user                              |
+| `role`            | String(50)   | DEFAULT 'member'                      | Member role (owner/admin/member)               |
+| `joined_at`       | DateTime     | DEFAULT utcnow()                      | Membership creation timestamp                  |
+
+**Indexes**:
+- Primary Key: `id`
+- Foreign Key: `organization_id` → `organization.id`
+- Foreign Key: `user_id` → `user.id`
+- Composite Index: `idx_org_member_org` on `organization_id`
+- Composite Index: `idx_org_member_user` on `user_id`
+- Unique Constraint: `(organization_id, user_id)` - User can only join once
+
+**Relationships**:
+- `organization` → Many-to-One with `Organization` (via `organization_id`)
+- `user` → Many-to-One with `User` (via `user_id`)
+
+**Methods**:
+- `is_owner()` - Check if member is organization owner
+- `is_admin()` - Check if member is admin or owner
+- `can_manage_members()` - Check if member can add/remove other members
+- `__repr__()` - String representation: `<OrganizationMember user_id in org organization_id>`
+
+**Permission Levels**:
+- **owner**: Full control, can delete organization, assign roles
+- **admin**: Can manage members, view usage, manage quizzes
+- **member**: Can create quizzes, view organization data
+
+**Notes**:
+- One user can belong to multiple organizations
+- One organization can have multiple users
+- Role determines API endpoint access permissions
+
+---
+
+### 3. APIUsageLog Table (Phase 2 - Multi-Tenancy)
+
+**Purpose**: Track API usage for billing and analytics
+
+**Table Name**: `api_usage_log`
+
+| Column Name          | Data Type    | Constraints                           | Description                                    |
+|----------------------|--------------|---------------------------------------|------------------------------------------------|
+| `id`                 | Integer      | PRIMARY KEY, AUTO_INCREMENT           | Unique log entry identifier                    |
+| `organization_id`    | Integer      | FOREIGN KEY (organization.id), NULLABLE | Reference to organization                    |
+| `user_id`            | Integer      | FOREIGN KEY (user.id), NOT NULL       | Reference to user who made request             |
+| `endpoint`           | String(200)  | NOT NULL                              | API endpoint path                              |
+| `method`             | String(10)   | NOT NULL                              | HTTP method (GET/POST/PUT/DELETE)              |
+| `status_code`        | Integer      | NULLABLE                              | HTTP response status code                      |
+| `timestamp`          | DateTime     | DEFAULT utcnow(), INDEXED             | Request timestamp                              |
+| `openai_tokens_used` | Integer      | DEFAULT 0                             | OpenAI tokens consumed (for billing)           |
+
+**Indexes**:
+- Primary Key: `id`
+- Foreign Key: `organization_id` → `organization.id`
+- Foreign Key: `user_id` → `user.id`
+- Composite Index: `idx_api_usage_org_time` on `(organization_id, timestamp)`
+- Index: `idx_api_usage_log_timestamp` on `timestamp`
+
+**Relationships**:
+- `organization` → Many-to-One with `Organization` (via `organization_id`)
+- `user` → Many-to-One with `User` (via `user_id`)
+
+**Static Methods**:
+- `log_request(org_id, user_id, endpoint, method, status, tokens)` - Create log entry
+- `get_total_tokens_used(org_id, start_date, end_date)` - Sum tokens for billing
+- `get_organization_usage(org_id, start_date, end_date)` - Get usage stats
+
+**Notes**:
+- Automatically logged by usage tracking middleware
+- Used for billing calculations and usage analytics
+- Tracks OpenAI token consumption for cost allocation
+- organization_id can be NULL for super admin requests
+
+---
+
+### 4. User Table
 
 **Purpose**: Stores teacher/marker accounts for authentication and authorization
 
 **Table Name**: `user`
 
-| Column Name      | Data Type      | Constraints                | Description                                    |
-|------------------|----------------|----------------------------|------------------------------------------------|
-| `id`             | Integer        | PRIMARY KEY, AUTO_INCREMENT | Unique user identifier                         |
-| `username`       | String(64)     | UNIQUE, NOT NULL           | Unique username for login                      |
-| `email`          | String(120)    | UNIQUE, NOT NULL           | Unique email address                           |
-| `password_hash`  | String(256)    | NOT NULL                   | Hashed password (pbkdf2:sha256)                |
-| `is_admin`       | Boolean        | DEFAULT FALSE              | Admin privileges flag                          |
-| `is_super_admin` | Boolean        | DEFAULT FALSE              | Super admin privileges flag                    |
-| `created_at`     | DateTime       | DEFAULT utcnow()           | Account creation timestamp                     |
+| Column Name                | Data Type      | Constraints                | Description                                    |
+|----------------------------|----------------|----------------------------|------------------------------------------------|
+| `id`                       | Integer        | PRIMARY KEY, AUTO_INCREMENT | Unique user identifier                         |
+| `username`                 | String(64)     | UNIQUE, NOT NULL           | Unique username for login                      |
+| `email`                    | String(120)    | UNIQUE, NOT NULL           | Unique email address                           |
+| `password_hash`            | String(256)    | NOT NULL                   | Hashed password (pbkdf2:sha256)                |
+| `is_admin`                 | Boolean        | DEFAULT FALSE              | Admin privileges flag                          |
+| `is_super_admin`           | Boolean        | DEFAULT FALSE              | Super admin privileges flag                    |
+| `default_organization_id`  | Integer        | FOREIGN KEY (organization.id), NULLABLE | User's default organization (Phase 2)   |
+| `created_at`               | DateTime       | DEFAULT utcnow()           | Account creation timestamp                     |
 
 **Indexes**:
 - Primary Key: `id`
 - Unique Index: `username`
 - Unique Index: `email`
+- Foreign Key: `default_organization_id` → `organization.id`
 
 **Relationships**:
 - `marked_quizzes` → One-to-Many with `Quiz` (via `user_id`)
+- `default_organization` → Many-to-One with `Organization` (via `default_organization_id`) (Phase 2)
+- `organization_memberships` → One-to-Many with `OrganizationMember` (via `user_id`) (Phase 2)
 
 **Methods**:
 - `set_password(password)` - Hash and store password
 - `check_password(password)` - Verify password against hash
+- `get_organizations()` - Get all organizations user belongs to (Phase 2)
+- `is_organization_admin(org_id)` - Check if user is admin/owner of organization (Phase 2)
 - `__repr__()` - String representation: `<User username>`
 
 **Mixins**:
@@ -85,25 +238,31 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 - First registered user automatically becomes admin
 - Password hashing uses Werkzeug `generate_password_hash()`
 - Super admins can clean database via admin panel
+- Users can belong to multiple organizations via OrganizationMember (Phase 2)
+- default_organization_id set when user creates first organization (Phase 2)
 
 ---
 
-### 2. Student Table
+### 5. Student Table
 
 **Purpose**: Stores student information (quiz takers)
 
 **Table Name**: `student`
 
-| Column Name | Data Type    | Constraints                | Description                |
-|-------------|--------------|----------------------------|----------------------------|
-| `id`        | Integer      | PRIMARY KEY, AUTO_INCREMENT | Unique student identifier  |
-| `name`      | String(100)  | NOT NULL                   | Student's full name        |
+| Column Name       | Data Type    | Constraints                              | Description                |
+|-------------------|--------------|------------------------------------------|----------------------------|
+| `id`              | Integer      | PRIMARY KEY, AUTO_INCREMENT              | Unique student identifier  |
+| `name`            | String(100)  | NOT NULL                                 | Student's full name        |
+| `organization_id` | Integer      | FOREIGN KEY (organization.id), NOT NULL  | Organization that owns this student (Phase 2) |
 
 **Indexes**:
 - Primary Key: `id`
+- Foreign Key: `organization_id` → `organization.id`
+- Composite Index: `idx_student_organization` on `organization_id`
 
 **Relationships**:
 - `quiz_submissions` → One-to-Many with `QuizSubmission` (via `student_id`)
+- `organization` → Many-to-One with `Organization` (via `organization_id`) (Phase 2)
 
 **Methods**:
 - `__repr__()` - String representation: `<Student name>`
@@ -112,30 +271,38 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 - Currently minimal - designed for future expansion
 - Can add fields like: email, cohort, enrollment_date, etc.
 - Student name is captured during quiz grading
+- Students are scoped to organizations - same name can exist in different organizations (Phase 2)
+- organization_id required for data isolation (Phase 2)
 
 ---
 
-### 3. Quiz Table
+### 6. Quiz Table
 
 **Purpose**: Stores quiz metadata and ownership
 
 **Table Name**: `quiz`
 
-| Column Name   | Data Type    | Constraints                | Description                                |
-|---------------|--------------|----------------------------|--------------------------------------------|
-| `id`          | Integer      | PRIMARY KEY, AUTO_INCREMENT | Unique quiz identifier                     |
-| `title`       | String(200)  | NULLABLE                   | Quiz title (optional)                      |
-| `standard_id` | Integer      | NOT NULL                   | Care Certificate standard number (1-15)    |
-| `created_at`  | DateTime     | DEFAULT utcnow()           | Quiz creation timestamp                    |
-| `user_id`     | Integer      | FOREIGN KEY (user.id), NULLABLE | Marker who created this quiz         |
+| Column Name       | Data Type    | Constraints                              | Description                                |
+|-------------------|--------------|------------------------------------------|--------------------------------------------|
+| `id`              | Integer      | PRIMARY KEY, AUTO_INCREMENT              | Unique quiz identifier                     |
+| `title`           | String(200)  | NULLABLE                                 | Quiz title (optional)                      |
+| `standard_id`     | Integer      | NOT NULL                                 | Care Certificate standard number (1-15)    |
+| `created_at`      | DateTime     | DEFAULT utcnow()                         | Quiz creation timestamp                    |
+| `user_id`         | Integer      | FOREIGN KEY (user.id), NULLABLE          | Marker who created this quiz               |
+| `organization_id` | Integer      | FOREIGN KEY (organization.id), NOT NULL  | Organization that owns this quiz (Phase 2) |
 
 **Indexes**:
 - Primary Key: `id`
 - Foreign Key: `user_id` → `user.id`
+- Foreign Key: `organization_id` → `organization.id`
+- Composite Index: `idx_quiz_organization` on `organization_id`
+- Composite Index: `idx_quiz_user_created` on `(user_id, created_at DESC)`
+- Index: `idx_quiz_standard` on `standard_id`
 
 **Relationships**:
 - `marker` → Many-to-One with `User` (via `user_id`)
 - `submissions` → One-to-Many with `QuizSubmission` (via `quiz_id`)
+- `organization` → Many-to-One with `Organization` (via `organization_id`) (Phase 2)
 
 **Methods**:
 - `__repr__()` - String representation: `<Quiz title (Standard X)>`
@@ -144,10 +311,13 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 - One Quiz can have multiple submissions (different students)
 - `title` is optional - defaults to "Quiz for Standard X"
 - `standard_id` corresponds to PDF file: `attached_assets/Standard-{id}.pdf`
+- Quizzes are scoped to organizations - data isolation enforced (Phase 2)
+- organization_id required for multi-tenancy (Phase 2)
+- All queries should filter by organization_id to prevent data leakage (Phase 2)
 
 ---
 
-### 4. QuizSubmission Table
+### 7. QuizSubmission Table
 
 **Purpose**: Stores individual student quiz submissions and grading results
 
@@ -161,11 +331,14 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 | `total_mark`         | Float     | NULLABLE                              | Total marks received across all questions      |
 | `submission_date`    | DateTime  | DEFAULT utcnow()                      | When quiz was submitted/graded                 |
 | `raw_extracted_data` | Text      | NULLABLE                              | JSON string of extracted OCR data              |
+| `uploaded_files`     | Text      | NULLABLE                              | JSON string of S3 file keys (Phase 2)          |
 
 **Indexes**:
 - Primary Key: `id`
 - Foreign Key: `quiz_id` → `quiz.id`
 - Foreign Key: `student_id` → `student.id`
+- Composite Index: `idx_submission_student` on `student_id`
+- Composite Index: `idx_submission_quiz` on `quiz_id`
 
 **Relationships**:
 - `quiz` → Many-to-One with `Quiz` (via `quiz_id`)
@@ -185,7 +358,7 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 
 ---
 
-### 5. QuizQuestion Table
+### 8. QuizQuestion Table
 
 **Purpose**: Stores individual questions, answers, marks, and feedback
 
@@ -205,6 +378,7 @@ The QuizMarker application uses a relational database (PostgreSQL in production,
 **Indexes**:
 - Primary Key: `id`
 - Foreign Key: `quiz_submission_id` → `quiz_submission.id` (CASCADE DELETE)
+- Composite Index: `idx_question_submission` on `quiz_submission_id`
 
 **Relationships**:
 - `submission` → Many-to-One with `QuizSubmission` (via `quiz_submission_id`)
@@ -633,9 +807,18 @@ quizzes = Quiz.query.options(
 
 ## Schema Version
 
-**Current Version**: 1.0 (Pre-Alembic)
-**Last Modified**: November 15, 2025 (Phase 1 - Documentation)
-**Next Review**: Phase 2 - Backend Restructuring
+**Current Version**: 2.0 (Phase 2 - Multi-Tenancy)
+**Migration System**: Alembic
+**Last Modified**: November 15, 2025 (Phase 2 - Multi-Tenancy Complete)
+**Next Review**: Phase 3 - Background Jobs
+
+### Migration History
+1. **v1.0** - Initial schema (User, Student, Quiz, QuizSubmission, QuizQuestion)
+2. **v2.0** - Multi-tenancy implementation (Organization, OrganizationMember, APIUsageLog)
+   - Added organization_id to Quiz, Student models
+   - Added default_organization_id to User model
+   - Created 11 performance indexes
+   - Added usage tracking for billing
 
 ---
 

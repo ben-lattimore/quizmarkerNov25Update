@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 from app.api.v1 import api_v1_bp
 from app import limiter
 from image_processor import process_images
+from models import Organization
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,37 @@ def upload_files():
     saved_filepaths = []
 
     try:
+        # Organization verification (only for non-super-admins)
+        if not current_user.is_super_admin:
+            # Regular users must have an organization
+            if not current_user.default_organization_id:
+                logger.warning(f"User {current_user.username} has no default organization")
+                return jsonify({
+                    'success': False,
+                    'error': 'You must belong to an organization to upload files',
+                    'code': 'NO_ORGANIZATION'
+                }), 403
+
+            # Verify organization exists and is active
+            organization = Organization.query.get(current_user.default_organization_id)
+            if not organization:
+                logger.error(f"Organization {current_user.default_organization_id} not found for user {current_user.username}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Organization not found',
+                    'code': 'ORGANIZATION_NOT_FOUND'
+                }), 404
+
+            if not organization.active:
+                logger.warning(f"User {current_user.username} attempted upload with inactive organization {organization.name}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Organization subscription is inactive',
+                    'code': 'ORGANIZATION_INACTIVE'
+                }), 403
+
+            logger.info(f"User {current_user.username} verified for organization {organization.name}")
+
         # Check if files exist in the request
         if 'files[]' not in request.files:
             return jsonify({

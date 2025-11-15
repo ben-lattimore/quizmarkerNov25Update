@@ -10,6 +10,7 @@ from flask_login import login_required, current_user
 
 from app.api.v1 import api_v1_bp
 from app import limiter
+from app.utils import filter_by_organization, get_user_organization_ids
 from database import db
 from models import Quiz, QuizSubmission, QuizQuestion, Student
 
@@ -50,8 +51,9 @@ def list_quizzes():
         standard_id = request.args.get('standard_id', type=int)
 
         # Build base query
-        if current_user.is_admin:
-            logger.info(f"Admin user {current_user.username} viewing all submissions")
+        if current_user.is_super_admin:
+            # Super admins can see ALL quizzes across all organizations
+            logger.info(f"Super admin user {current_user.username} viewing all submissions")
             query = db.session.query(
                 QuizSubmission, Quiz, Student
             ).join(
@@ -60,7 +62,24 @@ def list_quizzes():
                 Student, QuizSubmission.student_id == Student.id
             )
         else:
-            logger.info(f"User {current_user.username} viewing their submissions")
+            # Regular users can only see quizzes from their organizations
+            logger.info(f"User {current_user.username} viewing their organization submissions")
+            user_org_ids = get_user_organization_ids(current_user)
+
+            if not user_org_ids:
+                # User has no organizations, return empty
+                logger.warning(f"User {current_user.username} has no organizations")
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'quizzes': [],
+                        'total': 0,
+                        'page': page,
+                        'per_page': per_page,
+                        'total_pages': 0
+                    }
+                }), 200
+
             query = db.session.query(
                 QuizSubmission, Quiz, Student
             ).join(
@@ -68,7 +87,7 @@ def list_quizzes():
             ).join(
                 Student, QuizSubmission.student_id == Student.id
             ).filter(
-                Quiz.user_id == current_user.id
+                Quiz.organization_id.in_(user_org_ids)
             )
 
         # Apply filters
@@ -158,12 +177,16 @@ def get_quiz(quiz_id):
             }), 404
 
         # Check if user has permission to view this quiz
-        if not current_user.is_admin and submission.quiz.user_id != current_user.id:
-            return jsonify({
-                'success': False,
-                'error': 'You do not have permission to view this quiz',
-                'code': 'PERMISSION_DENIED'
-            }), 403
+        if not current_user.is_super_admin:
+            # Check if user has access to the organization
+            user_org_ids = get_user_organization_ids(current_user)
+            if submission.quiz.organization_id not in user_org_ids:
+                logger.warning(f"User {current_user.username} attempted to access quiz {quiz_id} from unauthorized organization")
+                return jsonify({
+                    'success': False,
+                    'error': 'You do not have permission to view this quiz',
+                    'code': 'PERMISSION_DENIED'
+                }), 403
 
         # Get questions for this submission
         questions = submission.questions
@@ -230,12 +253,16 @@ def delete_quiz(quiz_id):
             }), 404
 
         # Check if user has permission to delete this quiz
-        if not current_user.is_admin and submission.quiz.user_id != current_user.id:
-            return jsonify({
-                'success': False,
-                'error': 'You do not have permission to delete this quiz',
-                'code': 'PERMISSION_DENIED'
-            }), 403
+        if not current_user.is_super_admin:
+            # Check if user has access to the organization
+            user_org_ids = get_user_organization_ids(current_user)
+            if submission.quiz.organization_id not in user_org_ids:
+                logger.warning(f"User {current_user.username} attempted to delete quiz {quiz_id} from unauthorized organization")
+                return jsonify({
+                    'success': False,
+                    'error': 'You do not have permission to delete this quiz',
+                    'code': 'PERMISSION_DENIED'
+                }), 403
 
         # Delete associated questions first (cascade should handle this, but being explicit)
         QuizQuestion.query.filter_by(quiz_submission_id=submission.id).delete()
@@ -280,13 +307,30 @@ def get_quiz_stats():
     """
     try:
         # Build base query based on user role
-        if current_user.is_admin:
+        if current_user.is_super_admin:
+            # Super admins can see stats for all quizzes
             submissions = QuizSubmission.query.all()
         else:
+            # Regular users can only see stats from their organizations
+            user_org_ids = get_user_organization_ids(current_user)
+
+            if not user_org_ids:
+                # User has no organizations, return empty stats
+                logger.warning(f"User {current_user.username} has no organizations for stats")
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'total_submissions': 0,
+                        'average_score': 0,
+                        'submissions_by_standard': {},
+                        'recent_submissions': 0
+                    }
+                }), 200
+
             submissions = db.session.query(QuizSubmission).join(
                 Quiz
             ).filter(
-                Quiz.user_id == current_user.id
+                Quiz.organization_id.in_(user_org_ids)
             ).all()
 
         total_submissions = len(submissions)

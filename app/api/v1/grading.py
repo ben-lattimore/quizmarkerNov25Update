@@ -17,9 +17,10 @@ from app import limiter
 from app.schemas import GradeQuizSchema
 from app.utils.validation import validate_request
 from database import db
-from models import Student, Quiz, QuizSubmission, QuizQuestion
+from models import Student, Quiz, QuizSubmission, QuizQuestion, Organization
 from image_processor import grade_answers
 from email_service import email_service
+from app.utils import get_user_organization_ids
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,45 @@ def grade_quiz(validated_data):
 
         logger.info(f"Grading request: Standard {standard_id}, Student: {student_name}, User: {current_user.username}")
 
+        # Organization verification and plan limit check
+        if not current_user.is_super_admin:
+            # Regular users must have an organization
+            if not current_user.default_organization_id:
+                logger.warning(f"User {current_user.username} has no default organization")
+                return jsonify({
+                    'success': False,
+                    'error': 'You must belong to an organization to grade quizzes',
+                    'code': 'NO_ORGANIZATION'
+                }), 403
+
+            # Get the user's organization
+            organization = Organization.query.get(current_user.default_organization_id)
+            if not organization:
+                logger.error(f"Organization {current_user.default_organization_id} not found for user {current_user.username}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Organization not found',
+                    'code': 'ORGANIZATION_NOT_FOUND'
+                }), 404
+
+            # Check if organization can create quiz (plan limits)
+            can_create, error_message = organization.can_create_quiz()
+            if not can_create:
+                logger.warning(f"Organization {organization.name} cannot create quiz: {error_message}")
+                return jsonify({
+                    'success': False,
+                    'error': error_message,
+                    'code': 'PLAN_LIMIT_EXCEEDED',
+                    'details': {
+                        'plan': organization.plan,
+                        'quiz_limit': organization.max_quizzes_per_month,
+                        'quizzes_this_month': organization.get_quiz_count_this_month(),
+                        'quizzes_remaining': organization.max_quizzes_per_month - organization.get_quiz_count_this_month()
+                    }
+                }), 403
+
+            logger.info(f"Organization {organization.name} verified, {organization.max_quizzes_per_month - organization.get_quiz_count_this_month()} quizzes remaining")
+
         # Determine the PDF path
         reference_pdf_dir = current_app.config.get('REFERENCE_PDF_DIR', 'attached_assets')
         pdf_filename = f"Standard-{standard_id}.pdf"
@@ -142,12 +182,16 @@ def grade_quiz(validated_data):
                     }), 500
 
             # Store quiz results in database
+            # Determine organization_id (super admins get None, regular users use default org)
+            organization_id = None if current_user.is_super_admin else current_user.default_organization_id
+
             submission_id, total_mark = store_quiz_results(
                 extracted_data=extracted_data,
                 grading_results=grading_results,
                 standard_id=standard_id,
                 student_name=student_name,
-                quiz_title=quiz_title
+                quiz_title=quiz_title,
+                organization_id=organization_id
             )
 
             # Send email notification
@@ -190,12 +234,16 @@ def grade_quiz(validated_data):
                 logger.warning("Using emergency fallback for Standard 9")
                 grading_results = create_fallback_grading(valid_extractions)
 
+                # Determine organization_id (super admins get None, regular users use default org)
+                organization_id = None if current_user.is_super_admin else current_user.default_organization_id
+
                 submission_id, total_mark = store_quiz_results(
                     extracted_data=extracted_data,
                     grading_results=grading_results,
                     standard_id=standard_id,
                     student_name=student_name,
-                    quiz_title=quiz_title
+                    quiz_title=quiz_title,
+                    organization_id=organization_id
                 )
 
                 return jsonify({
@@ -254,26 +302,37 @@ def create_fallback_grading(extractions):
     return grading_results
 
 
-def store_quiz_results(extracted_data, grading_results, standard_id, student_name, quiz_title):
+def store_quiz_results(extracted_data, grading_results, standard_id, student_name, quiz_title, organization_id=None):
     """Store quiz results in database"""
     try:
-        # Find or create the student
-        student = Student.query.filter_by(name=student_name).first()
-        if not student:
-            student = Student(name=student_name)
-            db.session.add(student)
-            logger.info(f"Created new student: {student_name}")
+        # Find or create the student (scoped to organization)
+        if organization_id:
+            student = Student.query.filter_by(name=student_name, organization_id=organization_id).first()
+        else:
+            # Super admins without org - use global scope
+            student = Student.query.filter_by(name=student_name, organization_id=None).first()
 
-        # Find or create the quiz
-        quiz = Quiz.query.filter_by(title=quiz_title, standard_id=standard_id).first()
+        if not student:
+            student = Student(name=student_name, organization_id=organization_id)
+            db.session.add(student)
+            logger.info(f"Created new student: {student_name} (org_id: {organization_id})")
+
+        # Find or create the quiz (scoped to organization)
+        if organization_id:
+            quiz = Quiz.query.filter_by(title=quiz_title, standard_id=standard_id, organization_id=organization_id).first()
+        else:
+            # Super admins without org - use global scope
+            quiz = Quiz.query.filter_by(title=quiz_title, standard_id=standard_id, organization_id=None).first()
+
         if not quiz:
             quiz = Quiz(
                 title=quiz_title,
                 standard_id=standard_id,
-                user_id=current_user.id if current_user.is_authenticated else None
+                user_id=current_user.id if current_user.is_authenticated else None,
+                organization_id=organization_id
             )
             db.session.add(quiz)
-            logger.info(f"Created new quiz: {quiz_title}")
+            logger.info(f"Created new quiz: {quiz_title} (org_id: {organization_id})")
 
         # Create the quiz submission
         quiz_submission = QuizSubmission(
