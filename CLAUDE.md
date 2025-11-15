@@ -10,11 +10,14 @@ QuizMarker is a Flask-based web application that uses AI (OpenAI GPT-4.1-mini) t
 
 ### Development
 ```bash
-# Run development server
+# Run development server (loads .env automatically via python-dotenv)
 python main.py
 
 # Run with Gunicorn (production-style)
-gunicorn --bind 0.0.0.0:5000 --reuse-port --reload main:app
+gunicorn --bind 0.0.0.0:5001 --reuse-port --reload main:app
+
+# Note: Ensure .env file exists with required variables (see .env.example)
+# The app now uses python-dotenv to automatically load environment variables
 ```
 
 ### Database Management
@@ -40,6 +43,14 @@ python test_pdf_extraction.py
 ### Application Structure
 
 **Entry Point**: `main.py` → imports and runs the Flask app from `app.py`
+- Uses `python-dotenv` to automatically load environment variables from `.env` file
+- Ensures environment variables are available before importing app modules
+
+**Frontend** (`static/js/main.js`):
+- Drag-and-drop file upload support
+- Stores selected files in memory for both drag-drop and browse button workflows
+- Sequential image processing to avoid API timeouts
+- Real-time progress tracking during upload and grading
 
 **Core Flask App** (`app.py`):
 - Main application with all routes and request handling

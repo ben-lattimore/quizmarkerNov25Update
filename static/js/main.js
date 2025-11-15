@@ -28,6 +28,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let gradingResults = null;
     let availableStandards = [];
 
+    // Store selected files (for both drag-drop and browse)
+    let selectedFiles = null;
+
     // Load available standards when the page loads
     async function loadStandards() {
         try {
@@ -127,6 +130,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function handleFiles(files) {
         if (files.length === 0) return;
 
+        // Store files for later use in form submission
+        selectedFiles = files;
+
         // Show file list
         fileList.classList.remove('d-none');
         filePreviewList.innerHTML = '';
@@ -197,10 +203,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Form submission - now processes each image individually to avoid timeouts
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        
-        const files = fileInput.files;
-        
-        if (files.length === 0) {
+
+        // Use stored files (works for both drag-drop and browse)
+        const files = selectedFiles || fileInput.files;
+
+        if (!files || files.length === 0) {
             showError('Please select at least one image file');
             return;
         }
