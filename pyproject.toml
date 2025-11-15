@@ -4,19 +4,35 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
-    "email-validator>=2.2.0",
-    "flask-login>=0.6.3",
+    # Core Flask and extensions
     "flask>=3.1.0",
+    "flask-login>=0.6.3",
     "flask-sqlalchemy>=3.1.1",
+    "flask-wtf>=1.2.2",
     "gunicorn>=23.0.0",
-    "openai>=1.70.0",
-    "psycopg2-binary>=2.9.10",
-    "pypdf2>=3.0.1",
     "python-dotenv>=1.0.0",
     "werkzeug>=3.1.3",
-    "flask-wtf>=1.2.2",
-    "sendgrid>=6.11.0",
-    "wtforms>=3.2.1",
+
+    # Phase 2: API & Authentication
+    "flask-jwt-extended>=4.6.0",  # JWT authentication
+    "flask-cors>=5.0.0",           # CORS support for frontend
+    "flask-marshmallow>=1.2.1",    # API validation
+    "marshmallow-sqlalchemy>=1.1.0",  # SQLAlchemy integration
+    "flask-limiter>=3.8.0",        # Rate limiting
+
+    # Database
     "sqlalchemy>=2.0.40",
-    "httpx[http2]>=0.28.1",
+    "psycopg2-binary>=2.9.10",
+    "alembic>=1.14.0",            # Database migrations
+
+    # External Services
+    "openai>=1.70.0",             # AI processing
+    "boto3>=1.35.0",              # AWS S3
+    "sendgrid>=6.11.0",           # Email service
+    "httpx[http2]>=0.28.1",       # HTTP client
+
+    # Forms and Validation
+    "email-validator>=2.2.0",
+    "wtforms>=3.2.1",
+    "pypdf2>=3.0.1",
 ]
