@@ -10,9 +10,10 @@ from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash
 
 from app.api.v1 import api_v1_bp
+from app.schemas import RegisterSchema, LoginSchema, ForgotPasswordSchema, ResetPasswordSchema
+from app.utils.validation import validate_request
 from database import db
 from models import User
-from forms import LoginForm, RegistrationForm, ForgotPasswordForm, ResetPasswordForm
 from password_reset import generate_reset_token, validate_reset_token, reset_password
 from email_service import email_service
 
@@ -20,16 +21,17 @@ logger = logging.getLogger(__name__)
 
 
 @api_v1_bp.route('/auth/register', methods=['POST'])
-def register():
+@validate_request(RegisterSchema)
+def register(validated_data):
     """
     Register a new user
 
     Request JSON:
         {
-            "username": "string",
-            "email": "string",
-            "password": "string",
-            "confirm_password": "string"
+            "username": "string" (3-50 chars, alphanumeric + _ -),
+            "email": "string" (valid email),
+            "password": "string" (8-128 chars),
+            "confirm_password": "string" (must match password)
         }
 
     Response JSON:
@@ -44,37 +46,10 @@ def register():
         }
     """
     try:
-        data = request.get_json(force=True, silent=True)
-
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'No data provided',
-                'code': 'NO_DATA'
-            }), 400
-
-        # Validate required fields
-        required_fields = ['username', 'email', 'password', 'confirm_password']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({
-                    'success': False,
-                    'error': f'Missing required field: {field}',
-                    'code': 'MISSING_FIELD'
-                }), 400
-
-        username = data['username']
-        email = data['email']
-        password = data['password']
-        confirm_password = data['confirm_password']
-
-        # Validate passwords match
-        if password != confirm_password:
-            return jsonify({
-                'success': False,
-                'error': 'Passwords do not match',
-                'code': 'PASSWORD_MISMATCH'
-            }), 400
+        # Extract validated data (already validated by decorator!)
+        username = validated_data['username']
+        email = validated_data['email']
+        password = validated_data['password']
 
         # Check if user already exists
         existing_user = User.query.filter(
@@ -129,15 +104,16 @@ def register():
 
 
 @api_v1_bp.route('/auth/login', methods=['POST'])
-def login():
+@validate_request(LoginSchema)
+def login(validated_data):
     """
     Login user
 
     Request JSON:
         {
-            "username": "string",  # Can be username or email
+            "username": "string" (can be username or email),
             "password": "string",
-            "remember": boolean (optional)
+            "remember": boolean (optional, default: false)
         }
 
     Response JSON:
@@ -153,25 +129,9 @@ def login():
         }
     """
     try:
-        data = request.get_json(force=True, silent=True)
-
-        if not data:
-            return jsonify({
-                'success': False,
-                'error': 'No data provided',
-                'code': 'NO_DATA'
-            }), 400
-
-        username = data.get('username')
-        password = data.get('password')
-        remember = data.get('remember', False)
-
-        if not username or not password:
-            return jsonify({
-                'success': False,
-                'error': 'Username and password are required',
-                'code': 'MISSING_CREDENTIALS'
-            }), 400
+        username = validated_data['username']
+        password = validated_data['password']
+        remember = validated_data.get('remember', False)
 
         # Try to find user by username or email
         user = User.query.filter(

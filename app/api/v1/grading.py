@@ -13,6 +13,8 @@ from flask import request, jsonify, url_for, current_app
 from flask_login import login_required, current_user
 
 from app.api.v1 import api_v1_bp
+from app.schemas import GradeQuizSchema
+from app.utils.validation import validate_request
 from database import db
 from models import Student, Quiz, QuizSubmission, QuizQuestion
 from image_processor import grade_answers
@@ -23,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 @api_v1_bp.route('/grade', methods=['POST'])
 @login_required
-def grade_quiz():
+@validate_request(GradeQuizSchema)
+def grade_quiz(validated_data):
     """
     Grade handwritten answers against reference PDF
 
