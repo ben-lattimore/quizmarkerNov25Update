@@ -8,7 +8,8 @@ import os
 import logging
 import time
 import json
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from flask import request, jsonify, url_for, current_app
 from flask_login import login_required, current_user
 
@@ -17,7 +18,7 @@ from app import limiter
 from app.schemas import GradeQuizSchema
 from app.utils.validation import validate_request
 from database import db
-from models import Student, Quiz, QuizSubmission, QuizQuestion, Organization
+from models import Student, Quiz, QuizSubmission, QuizQuestion, Organization, BackgroundJob
 from image_processor import grade_answers
 from email_service import email_service
 from app.utils import get_user_organization_ids
@@ -154,115 +155,68 @@ def grade_quiz(validated_data):
                 'code': 'PDF_NOT_FOUND'
             }), 404
 
-        # Grade the answers
+        # Create background job for async grading
+        logger.info(f"Creating background job for grading Standard {standard_id}")
+
+        job_id = str(uuid.uuid4())
+        organization_id = None if current_user.is_super_admin else current_user.default_organization_id
+
+        job = BackgroundJob(
+            id=job_id,
+            job_type='grading',
+            status='queued',
+            user_id=current_user.id,
+            organization_id=organization_id,
+            progress=0,
+            current_step=f'Queued grading for {student_name}',
+            expires_at=datetime.utcnow() + timedelta(hours=24)
+        )
+
+        # Store input data for the background task
+        job.set_input_data({
+            'extracted_data': valid_extractions,
+            'pdf_path': pdf_path,
+            'standard_id': standard_id,
+            'student_name': student_name,
+            'quiz_title': quiz_title,
+            'user_id': current_user.id,
+            'organization_id': organization_id,
+            'force_fallback': force_fallback
+        })
+
+        db.session.add(job)
+        db.session.commit()
+
+        logger.info(f"Created job {job_id} for grading")
+
+        # Queue the background task
         try:
-            grading_start = time.time()
-
-            # Special handling for Standard 9 with forced fallback
-            if standard_id == 9 and force_fallback:
-                logger.info("Using forced fallback for Standard 9")
-                grading_results = create_fallback_grading(valid_extractions)
-            else:
-                # Normal grading process
-                grading_results = grade_answers(valid_extractions, pdf_path)
-
-            grading_time = time.time() - grading_start
-            logger.info(f"Graded answers in {grading_time:.2f} seconds")
-
-            # Validate grading results
-            if not grading_results or not isinstance(grading_results, dict):
-                if standard_id == 9:
-                    logger.warning("Grading failed for Standard 9, using fallback")
-                    grading_results = create_fallback_grading(valid_extractions)
-                else:
-                    return jsonify({
-                        'success': False,
-                        'error': 'Grading process returned invalid results',
-                        'code': 'GRADING_FAILED'
-                    }), 500
-
-            # Store quiz results in database
-            # Determine organization_id (super admins get None, regular users use default org)
-            organization_id = None if current_user.is_super_admin else current_user.default_organization_id
-
-            submission_id, total_mark = store_quiz_results(
-                extracted_data=extracted_data,
-                grading_results=grading_results,
-                standard_id=standard_id,
-                student_name=student_name,
-                quiz_title=quiz_title,
-                organization_id=organization_id
-            )
-
-            # Send email notification
-            if current_user.is_authenticated and submission_id:
-                try:
-                    quiz_url = url_for('view_quiz', quiz_id=submission_id, _external=True)
-                    quiz_info = {
-                        'title': quiz_title,
-                        'student_name': student_name,
-                        'total_mark': total_mark,
-                        'submission_date': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    email_service.send_quiz_submission_notification(
-                        current_user.email,
-                        current_user.username,
-                        quiz_info,
-                        quiz_url
-                    )
-                    logger.info(f"Sent email notification to {current_user.email}")
-                except Exception as e:
-                    logger.error(f"Failed to send email notification: {e}")
-
-            # Return the grading results
+            from tasks import grade_quiz_task
+            grade_quiz_task.delay(job_id)
+            logger.info(f"Queued grade_quiz_task for job {job_id}")
+        except Exception as queue_error:
+            logger.error(f"Failed to queue grading task: {queue_error}")
+            job.mark_failed(f"Failed to queue task: {str(queue_error)}")
             return jsonify({
-                'success': True,
-                'data': {
-                    'standard_id': standard_id,
-                    'student_name': student_name,
-                    'total_mark': total_mark,
-                    'submission_id': submission_id,
-                    'results': grading_results
-                }
-            }), 200
+                'success': False,
+                'error': 'Failed to queue grading job',
+                'code': 'QUEUE_ERROR'
+            }), 500
 
-        except Exception as grading_error:
-            logger.error(f"Error during grading: {grading_error}", exc_info=True)
-
-            # Emergency fallback for Standard 9
-            if standard_id == 9:
-                logger.warning("Using emergency fallback for Standard 9")
-                grading_results = create_fallback_grading(valid_extractions)
-
-                # Determine organization_id (super admins get None, regular users use default org)
-                organization_id = None if current_user.is_super_admin else current_user.default_organization_id
-
-                submission_id, total_mark = store_quiz_results(
-                    extracted_data=extracted_data,
-                    grading_results=grading_results,
-                    standard_id=standard_id,
-                    student_name=student_name,
-                    quiz_title=quiz_title,
-                    organization_id=organization_id
-                )
-
-                return jsonify({
-                    'success': True,
-                    'data': {
-                        'standard_id': standard_id,
-                        'student_name': student_name,
-                        'total_mark': total_mark,
-                        'submission_id': submission_id,
-                        'results': grading_results,
-                        'warning': 'Used fallback grading due to API issues'
-                    }
-                }), 200
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': f"Grading failed: {str(grading_error)}",
-                    'code': 'GRADING_ERROR'
-                }), 500
+        # Return job information
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'status': 'queued',
+            'message': f'Grading queued for {student_name}. This may take 30-60 seconds.',
+            'data': {
+                'standard_id': standard_id,
+                'student_name': student_name,
+                'quiz_title': quiz_title,
+                'job_status_url': f'/api/v1/jobs/{job_id}',
+                'estimated_time': '30-60 seconds'
+            }
+        }), 202
 
     except Exception as e:
         logger.error(f"Critical error in grade endpoint: {e}", exc_info=True)

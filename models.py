@@ -236,6 +236,96 @@ class APIUsageLog(db.Model):
         result = query.scalar()
         return result or 0
 
+class BackgroundJob(db.Model):
+    """Model for tracking background job status for async processing (Phase 3)"""
+    id = db.Column(db.String(36), primary_key=True)  # UUID
+    job_type = db.Column(db.String(50), nullable=False)  # 'upload', 'grading', 'email'
+    status = db.Column(db.String(20), default='queued', index=True)  # queued, processing, completed, failed
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    organization_id = db.Column(db.Integer, db.ForeignKey('organization.id'), nullable=True)
+
+    # Progress tracking
+    progress = db.Column(db.Integer, default=0)  # 0-100
+    current_step = db.Column(db.String(200))  # e.g., "Processing image 2 of 5"
+
+    # Input/Output data
+    input_data = db.Column(db.Text)  # JSON string of input parameters
+    result_data = db.Column(db.Text)  # JSON string of results
+    error_message = db.Column(db.Text, nullable=True)
+
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)  # For cleanup
+
+    # Retry tracking
+    retry_count = db.Column(db.Integer, default=0)
+    max_retries = db.Column(db.Integer, default=3)
+
+    # Relationships
+    user = db.relationship('User', backref='background_jobs', lazy=True)
+
+    def __repr__(self):
+        return f'<BackgroundJob {self.id} type={self.job_type} status={self.status}>'
+
+    def set_input_data(self, data):
+        """Convert input data to JSON string for storage"""
+        self.input_data = json.dumps(data)
+
+    def get_input_data(self):
+        """Convert stored JSON string back to Python object"""
+        if self.input_data:
+            return json.loads(self.input_data)
+        return None
+
+    def set_result_data(self, data):
+        """Convert result data to JSON string for storage"""
+        self.result_data = json.dumps(data)
+
+    def get_result_data(self):
+        """Convert stored JSON string back to Python object"""
+        if self.result_data:
+            return json.loads(self.result_data)
+        return None
+
+    def update_progress(self, progress, current_step=None):
+        """Update job progress"""
+        self.progress = progress
+        if current_step:
+            self.current_step = current_step
+        db.session.commit()
+
+    def mark_started(self):
+        """Mark job as started"""
+        self.status = 'processing'
+        self.started_at = datetime.utcnow()
+        db.session.commit()
+
+    def mark_completed(self, result_data):
+        """Mark job as completed with results"""
+        self.status = 'completed'
+        self.completed_at = datetime.utcnow()
+        self.progress = 100
+        self.set_result_data(result_data)
+        db.session.commit()
+
+    def mark_failed(self, error_message):
+        """Mark job as failed with error message"""
+        self.status = 'failed'
+        self.completed_at = datetime.utcnow()
+        self.error_message = error_message
+        db.session.commit()
+
+    def can_retry(self):
+        """Check if job can be retried"""
+        return self.retry_count < self.max_retries
+
+    def increment_retry(self):
+        """Increment retry count"""
+        self.retry_count += 1
+        db.session.commit()
+
 class Student(db.Model):
     """Model for storing student information"""
     id = db.Column(db.Integer, primary_key=True)

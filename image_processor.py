@@ -284,37 +284,48 @@ def process_single_image(image_path, image_id=1):
             "error": f"Processing error: {str(e)}"
         }
 
-def process_images(image_paths):
+def process_images(image_paths, progress_callback=None):
     """Process a list of images and extract text from each
-    
+
     This function processes images one at a time with delays between API calls.
     This helps prevent API rate limits and timeouts when processing multiple images.
+
+    Args:
+        image_paths: List of file paths to process
+        progress_callback: Optional callback function(current_index, total_count) to report progress
+
+    Returns:
+        List of extracted data from each image
     """
     results = []
     total_images = len(image_paths)
-    
+
     logging.info(f"Starting to process {total_images} images")
-    
+
     # If we have multiple images, warn about increased processing time
     if total_images > 1:
         logging.info(f"Processing {total_images} images sequentially to avoid API timeouts")
-    
+
     for i, image_path in enumerate(image_paths):
         # Log progress for multiple images
         logging.info(f"Processing image {i+1} of {total_images}: {os.path.basename(image_path)}")
-        
+
+        # Call progress callback if provided
+        if progress_callback:
+            progress_callback(i + 1, total_images)
+
         # Process each image independently
         try:
             result = process_single_image(image_path, i + 1)
             results.append(result)
-            
+
             # Add a delay between API calls to prevent rate limiting
             # Only add delay if we have more images to process
             if i < total_images - 1 and total_images > 1:
                 delay_time = 2  # seconds between API calls
                 logging.info(f"Adding {delay_time}s delay before processing next image")
                 time.sleep(delay_time)
-                
+
         except Exception as e:
             logging.error(f"Failed to process image {i+1}: {str(e)}")
             # Add error entry for this image
@@ -325,11 +336,11 @@ def process_images(image_paths):
             })
             # Continue with next image rather than failing the whole batch
             continue
-    
+
     # Log completion
     success_count = sum(1 for r in results if "error" not in r)
     logging.info(f"Completed processing {success_count}/{total_images} images successfully")
-    
+
     # Return whatever results we have managed to collect
     return results
 

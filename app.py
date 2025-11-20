@@ -27,6 +27,20 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+# Configure Flask-Login to return JSON for API routes instead of redirecting
+@login_manager.unauthorized_handler
+def unauthorized():
+    # Check if this is an API request
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'success': False,
+            'error': 'Authentication required',
+            'code': 'UNAUTHORIZED'
+        }), 401
+    else:
+        # For non-API routes, redirect to login
+        return redirect(url_for('login'))
+
 # Add custom filters for JSON handling
 @app.template_filter('from_json')
 def from_json(value):
@@ -58,6 +72,10 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload size
 
 # Path to the reference PDFs for grading
 REFERENCE_PDF_DIR = "attached_assets"
+
+# Register API v1 Blueprint for Phase 3 async endpoints
+from app.api.v1 import api_v1_bp
+app.register_blueprint(api_v1_bp, url_prefix='/api/v1')
 
 def allowed_file(filename):
     return '.' in filename and \

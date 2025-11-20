@@ -20,6 +20,11 @@ dependencies = [
     "marshmallow-sqlalchemy>=1.1.0",  # SQLAlchemy integration
     "flask-limiter>=3.8.0",        # Rate limiting
 
+    # Phase 3: Async Processing & Background Jobs
+    "redis>=5.2.0",                # Redis client for job queue
+    "rq>=2.0.0",                   # Redis Queue for background jobs
+    "rq-dashboard>=0.7.0",         # Web UI for monitoring RQ jobs
+
     # Database
     "sqlalchemy>=2.0.40",
     "psycopg2-binary>=2.9.10",

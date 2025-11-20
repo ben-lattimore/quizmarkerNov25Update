@@ -31,6 +31,71 @@ document.addEventListener('DOMContentLoaded', function() {
     // Store selected files (for both drag-drop and browse)
     let selectedFiles = null;
 
+    // Job polling configuration
+    const POLL_INTERVAL = 2000; // Poll every 2 seconds
+    const MAX_POLL_ATTEMPTS = 150; // 5 minutes max (150 * 2s)
+
+    /**
+     * Poll a background job until it completes
+     * @param {string} jobId - The job ID to poll
+     * @param {function} onProgress - Callback for progress updates (progress, step)
+     * @returns {Promise} - Resolves with job result or rejects with error
+     */
+    async function pollJobStatus(jobId, onProgress) {
+        let attempts = 0;
+
+        return new Promise((resolve, reject) => {
+            const pollInterval = setInterval(async () => {
+                attempts++;
+
+                if (attempts > MAX_POLL_ATTEMPTS) {
+                    clearInterval(pollInterval);
+                    reject(new Error('Job polling timeout - job took too long to complete'));
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/v1/jobs/${jobId}`);
+
+                    if (!response.ok) {
+                        clearInterval(pollInterval);
+                        reject(new Error(`Failed to get job status: ${response.status}`));
+                        return;
+                    }
+
+                    const data = await response.json();
+
+                    if (!data.success || !data.data) {
+                        clearInterval(pollInterval);
+                        reject(new Error('Invalid job status response'));
+                        return;
+                    }
+
+                    const jobData = data.data;
+
+                    // Update progress if callback provided
+                    if (onProgress) {
+                        onProgress(jobData.progress || 0, jobData.current_step || 'Processing...');
+                    }
+
+                    // Check if job is complete
+                    if (jobData.status === 'completed') {
+                        clearInterval(pollInterval);
+                        resolve(jobData.result);
+                    } else if (jobData.status === 'failed') {
+                        clearInterval(pollInterval);
+                        reject(new Error(jobData.error || 'Job failed'));
+                    }
+                    // Otherwise keep polling (status is 'queued' or 'processing')
+
+                } catch (error) {
+                    clearInterval(pollInterval);
+                    reject(error);
+                }
+            }, POLL_INTERVAL);
+        });
+    }
+
     // Load available standards when the page loads
     async function loadStandards() {
         try {
@@ -200,7 +265,7 @@ document.addEventListener('DOMContentLoaded', function() {
         else return (bytes / 1048576).toFixed(1) + ' MB';
     }
 
-    // Form submission - now processes each image individually to avoid timeouts
+    // Form submission - now uses async background processing
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
@@ -211,186 +276,103 @@ document.addEventListener('DOMContentLoaded', function() {
             showError('Please select at least one image file');
             return;
         }
-        
-        // Additional info for multiple files
-        if (files.length > 1) {
-            // Add info about sequential processing approach
-            const infoElem = document.createElement('div');
-            infoElem.id = 'multipleFilesInfo';
-            infoElem.className = 'alert alert-info mb-3';
-            infoElem.innerHTML = `
-                <h5 class="alert-heading"><i class="fas fa-info-circle me-2"></i>Processing Multiple Images</h5>
-                <p>You've selected ${files.length} images. To prevent API timeouts, each image will be processed one at a time.</p>
-                <ul>
-                    <li>Each image will be uploaded and processed individually</li>
-                    <li>Results will appear as they're completed</li>
-                    <li>Processing all images may take 1-2 minutes</li>
-                </ul>
-            `;
-            
-            // Remove previous info if exists
-            const oldInfo = document.getElementById('multipleFilesInfo');
-            if (oldInfo) oldInfo.remove();
-            
-            // Add the info before the processing card
-            processingCard.parentNode.insertBefore(infoElem, processingCard);
-        }
-        
-        // Show processing card and hide upload form
+
+        // Show processing card
         processingCard.classList.remove('d-none');
-        progressBar.style.width = '10%';
-        statusMessage.textContent = 'Starting image processing...';
-        
+        progressBar.style.width = '5%';
+        statusMessage.textContent = 'Uploading files...';
+
         try {
-            // Initialize results array for collecting all processed images
-            processedResults = [];
-            
-            // Success/failure counters
-            let successCount = 0;
-            let failCount = 0;
-            
-            // Process files one by one instead of all at once
+            // Create form data with all files
+            const formData = new FormData();
             for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                
-                // Skip invalid files
-                if (!file || !file.name || !file.type.startsWith('image/')) {
-                    failCount++;
-                    continue;
-                }
-                
-                // Update progress percentage based on how many files we've processed
-                const progressPct = ((i / files.length) * 90) + 10; // 10-100%
-                progressBar.style.width = `${progressPct}%`;
-                
-                // Update status message with current file
-                statusMessage.textContent = `Processing image ${i+1}/${files.length}: ${file.name}`;
-                
+                formData.append('files[]', files[i]);
+            }
+
+            // Upload files and queue background job
+            const response = await fetch('/api/v1/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                let errorMessage = 'Failed to upload files';
                 try {
-                    // Create a form with just this single file
-                    const singleFileForm = new FormData();
-                    singleFileForm.append('files[]', file);
-                    
-                    // Set a reasonable timeout for a single image (60 seconds)
-                    const controller = new AbortController();
-                    const timeoutMs = 60000;
-                    
-                    const timeoutId = setTimeout(() => {
-                        controller.abort();
-                        console.warn(`Request for ${file.name} aborted after ${timeoutMs/1000} seconds timeout`);
-                    }, timeoutMs);
-                    
-                    // Process just this one image
-                    const response = await fetch('/upload', {
-                        method: 'POST',
-                        body: singleFileForm,
-                        signal: controller.signal
-                    }).finally(() => {
-                        clearTimeout(timeoutId);
-                    });
-                    
-                    // Handle errors for this specific file
-                    if (!response.ok) {
-                        let errorMessage = `Failed to process image: ${file.name}`;
-                        
-                        try {
-                            const errorData = await response.json();
-                            errorMessage = errorData.error || errorMessage;
-                        } catch (e) {
-                            // If not JSON, use status text
-                            errorMessage = `Server error (${response.status}): ${response.statusText}`;
-                        }
-                        
-                        // Add error result for this file
-                        processedResults.push({
-                            image_id: i + 1,
-                            filename: file.name,
-                            error: errorMessage
-                        });
-                        
-                        failCount++;
-                        console.error(`Error processing ${file.name}:`, errorMessage);
-                        continue; // Skip to next file
-                    }
-                    
-                    // Parse the response
-                    const data = await response.json();
-                    
-                    // Get the results array from the response
-                    if (data && data.results && Array.isArray(data.results) && data.results.length > 0) {
-                        // Add this file's result to our collection
-                        const result = data.results[0]; // There should be only one result since we sent one file
-                        
-                        // Make sure the filename is correct (in case the server changed it)
-                        result.filename = file.name;
-                        result.image_id = i + 1;
-                        
-                        processedResults.push(result);
-                        successCount++;
-                        
-                        // Show the current results as they come in
-                        displayResults(processedResults);
-                        
-                        // Show results card so user can see progress
-                        resultsCard.classList.remove('d-none');
-                    } else {
-                        // Handle invalid response format
-                        processedResults.push({
-                            image_id: i + 1,
-                            filename: file.name,
-                            error: 'Invalid response from server'
-                        });
-                        failCount++;
-                    }
-                } catch (error) {
-                    // Handle any other errors for this file
-                    console.error(`Error processing ${file.name}:`, error);
-                    
-                    processedResults.push({
-                        image_id: i + 1,
-                        filename: file.name,
-                        error: error.message || 'Failed to process image'
-                    });
-                    
-                    failCount++;
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                } catch (e) {
+                    errorMessage = `Server error (${response.status}): ${response.statusText}`;
                 }
-                
-                // Short delay between processing each file to avoid API rate limiting
-                if (i < files.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                throw new Error(errorMessage);
+            }
+
+            const data = await response.json();
+
+            // Check if this is the new async response (with job_id)
+            if (data.job_id) {
+                // New async flow - poll for job status
+                statusMessage.textContent = 'Processing images in background...';
+                progressBar.style.width = '10%';
+
+                // Poll for job completion
+                const result = await pollJobStatus(data.job_id, (progress, step) => {
+                    // Update progress bar and status message
+                    progressBar.style.width = `${progress}%`;
+                    statusMessage.textContent = step;
+                });
+
+                // Job completed - process results
+                if (result && Array.isArray(result)) {
+                    processedResults = result;
+
+                    // Count successes/failures
+                    const successCount = result.filter(r => !r.error).length;
+                    const failCount = result.filter(r => r.error).length;
+
+                    // Display results
+                    displayResults(processedResults);
+                    resultsCard.classList.remove('d-none');
+
+                    // Final status message
+                    progressBar.style.width = '100%';
+                    statusMessage.textContent = `Processing complete: ${successCount} successful, ${failCount} failed`;
+
+                    // Hide processing card after a moment
+                    setTimeout(() => {
+                        processingCard.classList.add('d-none');
+                    }, 2000);
+                } else {
+                    throw new Error('Invalid result format from job');
+                }
+            } else {
+                // Fallback: old synchronous response format (shouldn't happen with new API)
+                if (data && data.data && Array.isArray(data.data)) {
+                    processedResults = data.data;
+                    displayResults(processedResults);
+                    resultsCard.classList.remove('d-none');
+                    progressBar.style.width = '100%';
+                    statusMessage.textContent = 'Processing complete!';
+                } else {
+                    throw new Error('Invalid response format from server');
                 }
             }
-            
-            // All files processed
-            progressBar.style.width = '100%';
-            statusMessage.textContent = `Processing complete! Success: ${successCount}, Failed: ${failCount}`;
-            
-            // Display final results
-            displayResults(processedResults);
         } catch (error) {
-            console.error('Error in overall processing:', error);
+            console.error('Error during upload/processing:', error);
             progressBar.className = 'progress-bar bg-danger';
-            
-            // Provide more helpful error messages based on error type
-            let errorMessage = error.message;
-            
-            // Check for specific error conditions
-            if (error.name === 'AbortError') {
-                errorMessage = 'Request timed out. The server took too long to respond.';
-            } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-                errorMessage = 'Network error. Please check your connection and try again.';
-            }
-            
+            progressBar.style.width = '100%';
+
+            // Provide helpful error messages
+            let errorMessage = error.message || 'Unknown error occurred';
+
             statusMessage.textContent = 'Error: ' + errorMessage;
-            
-            // Show error modal
             showError(errorMessage);
-            
+
             // Reset UI after delay
             setTimeout(() => {
                 processingCard.classList.add('d-none');
                 progressBar.className = 'progress-bar progress-bar-striped progress-bar-animated';
-            }, 1000);
+                progressBar.style.width = '0%';
+            }, 3000);
         }
     });
 
@@ -570,43 +552,47 @@ document.addEventListener('DOMContentLoaded', function() {
         const quizTitle = document.getElementById('quizTitleInput').value.trim();
         
         try {
-            // Show the grading modal with the selected standard
+            // Show the grading modal
             gradingModalBody.innerHTML = `
                 <div class="text-center p-4">
                     <div class="spinner-border" role="status">
                         <span class="visually-hidden">Loading...</span>
                     </div>
-                    <p class="mt-3">Grading answers for ${studentName} against Standard ${selectedStandardId}...</p>
-                    <p class="small text-muted">This may take 30-60 seconds</p>
+                    <p class="mt-3">Queueing grading job for ${studentName}...</p>
+                    <div class="progress mt-3">
+                        <div id="gradingProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <p id="gradingStatusMessage" class="small text-muted mt-2">Preparing...</p>
                 </div>
             `;
             gradingModal.show();
-            
-            // Call the grading API with the selected standard and student info
-            const response = await fetch('/grade', {
+
+            // Call the grading API (new async endpoint)
+            const response = await fetch('/api/v1/grade', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     data: validResults,
                     standard_id: parseInt(selectedStandardId),
                     student_name: studentName,
                     quiz_title: quizTitle
                 })
             });
-            
+
             // Check for errors
             if (!response.ok) {
                 let errorMessage = 'Failed to grade answers';
-                
+
                 try {
                     const errorData = await response.json();
                     errorMessage = errorData.error || errorMessage;
                 } catch (e) {
                     errorMessage = `Server error (${response.status}): ${response.statusText}`;
                 }
-                
+
                 gradingModalBody.innerHTML = `
                     <div class="alert alert-danger">
                         <h5 class="alert-heading">Error</h5>
@@ -615,32 +601,68 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
                 return;
             }
-            
+
             // Parse the response
-            const gradeData = await response.json();
-            
-            if (!gradeData.success || !gradeData.results) {
-                gradingModalBody.innerHTML = `
-                    <div class="alert alert-danger">
-                        <h5 class="alert-heading">Error</h5>
-                        <p>Invalid response format from server</p>
-                    </div>
-                `;
-                return;
+            const data = await response.json();
+
+            // Check if this is async response (with job_id)
+            if (data.job_id) {
+                // New async flow - poll for job completion
+                const gradingProgressBar = document.getElementById('gradingProgressBar');
+                const gradingStatusMessage = document.getElementById('gradingStatusMessage');
+
+                gradingProgressBar.style.width = '10%';
+                gradingStatusMessage.textContent = 'Grading in progress...';
+
+                // Poll for job completion
+                const result = await pollJobStatus(data.job_id, (progress, step) => {
+                    gradingProgressBar.style.width = `${progress}%`;
+                    gradingStatusMessage.textContent = step;
+                });
+
+                // Job completed - display results
+                if (result && result.submission_id) {
+                    // Store the grading results
+                    gradingResults = {
+                        standard_id: result.standard_id,
+                        student_name: result.student_name,
+                        total_mark: result.total_mark,
+                        submission_id: result.submission_id
+                    };
+
+                    // Display success
+                    gradingModalBody.innerHTML = `
+                        <div class="alert alert-success">
+                            <h5 class="alert-heading"><i class="fas fa-check-circle me-2"></i>Grading Complete</h5>
+                            <p>Quiz graded successfully for ${studentName}</p>
+                            <p class="mb-0"><strong>Total Mark:</strong> ${result.total_mark}/10</p>
+                        </div>
+                        <div class="text-center mt-3">
+                            <a href="/quiz/${result.submission_id}" class="btn btn-primary" target="_blank">
+                                <i class="fas fa-external-link-alt me-2"></i>View Full Results
+                            </a>
+                        </div>
+                    `;
+
+                    // Show the grades tab
+                    const gradesTabEl = new bootstrap.Tab(gradesTab);
+                    gradesTabEl.show();
+                } else {
+                    throw new Error('Invalid result format from job');
+                }
+            } else {
+                // Fallback: old synchronous response (shouldn't happen with new API)
+                if (data.success && data.results) {
+                    gradingResults = data.results;
+                    displayGradingResults(gradingResults);
+                    updateGradesTab(gradingResults);
+
+                    const gradesTabEl = new bootstrap.Tab(gradesTab);
+                    gradesTabEl.show();
+                } else {
+                    throw new Error('Invalid response format from server');
+                }
             }
-            
-            // Store the grading results
-            gradingResults = gradeData.results;
-            
-            // Display the results in the modal
-            displayGradingResults(gradingResults);
-            
-            // Also update the grades tab
-            updateGradesTab(gradingResults);
-            
-            // Show the grades tab
-            const gradesTabEl = new bootstrap.Tab(gradesTab);
-            gradesTabEl.show();
             
         } catch (error) {
             console.error('Error during grading:', error);

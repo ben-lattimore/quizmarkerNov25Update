@@ -8,6 +8,7 @@ import os
 import logging
 import uuid
 import time
+from datetime import datetime, timedelta
 from flask import request, jsonify, current_app
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
@@ -15,7 +16,8 @@ from werkzeug.utils import secure_filename
 from app.api.v1 import api_v1_bp
 from app import limiter
 from image_processor import process_images
-from models import Organization
+from models import Organization, BackgroundJob
+from database import db
 
 logger = logging.getLogger(__name__)
 
@@ -150,53 +152,77 @@ def upload_files():
         filepaths = [file_info['filepath'] for file_info in valid_files]
         original_filenames = [file_info['original_filename'] for file_info in valid_files]
 
-        logger.info(f"Processing {total_images} images with optimized processor")
+        logger.info(f"Creating background job to process {total_images} images")
 
-        # Process all images
-        process_start = time.time()
-        results = process_images(filepaths)
-        process_time = time.time() - process_start
+        # Create background job for async processing
+        job_id = str(uuid.uuid4())
+        job = BackgroundJob(
+            id=job_id,
+            job_type='upload',
+            status='queued',
+            user_id=current_user.id,
+            organization_id=current_user.default_organization_id if not current_user.is_super_admin else None,
+            progress=0,
+            current_step=f'Queued {total_images} images for processing',
+            expires_at=datetime.utcnow() + timedelta(hours=24)  # Job results expire in 24 hours
+        )
 
-        logger.info(f"Processed {len(results)} images in {process_time:.2f} seconds")
+        # Store input data (file paths and original filenames)
+        job.set_input_data({
+            'filepaths': filepaths,
+            'original_filenames': original_filenames,
+            'total_images': total_images
+        })
 
-        # Replace unique filenames with original ones in results
-        for i, result in enumerate(results):
-            if i < len(original_filenames) and 'filename' in result:
-                result['filename'] = original_filenames[i]
+        db.session.add(job)
+        db.session.commit()
 
-        # Log success/error status
-        success_count = sum(1 for r in results if "error" not in r)
-        logger.info(f"Successfully processed {success_count}/{total_images} images")
+        logger.info(f"Created job {job_id} for processing {total_images} images")
 
-        # Check if we have any results at all
-        if not results:
+        # Queue the background task
+        try:
+            from tasks import process_images_task
+            process_images_task.delay(job_id, filepaths)
+            logger.info(f"Queued process_images_task for job {job_id}")
+        except Exception as queue_error:
+            logger.error(f"Failed to queue background task: {queue_error}")
+            # Mark job as failed
+            job.mark_failed(f"Failed to queue task: {str(queue_error)}")
+
+            # Clean up files since we can't process them
+            for filepath in saved_filepaths:
+                try:
+                    if os.path.exists(filepath):
+                        os.remove(filepath)
+                except Exception as e:
+                    logger.error(f"Failed to remove file {filepath}: {e}")
+
             return jsonify({
                 'success': False,
-                'error': 'Failed to process any images',
-                'code': 'PROCESSING_FAILED'
+                'error': 'Failed to queue processing job',
+                'code': 'QUEUE_ERROR'
             }), 500
 
-        # Build response
+        # Build response with job information
         response_data = {
             'success': True,
-            'data': results
+            'job_id': job_id,
+            'status': 'queued',
+            'message': f'Upload successful. Processing {total_images} images in background.',
+            'data': {
+                'total_images': total_images,
+                'job_status_url': f'/api/v1/jobs/{job_id}',
+                'estimated_time': f'{total_images * 15}-{total_images * 30} seconds'
+            }
         }
 
         if invalid_files:
             response_data['invalid_files'] = invalid_files
 
-        # Clean up all uploaded files
-        cleanup_count = 0
-        for filepath in saved_filepaths:
-            try:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                    cleanup_count += 1
-            except Exception as e:
-                logger.error(f"Failed to remove temporary file {filepath}: {e}")
+        logger.info(f"Upload endpoint returning job {job_id} to user")
 
-        logger.info(f"Cleaned up {cleanup_count} temporary files")
-        return jsonify(response_data), 200
+        # Return 202 Accepted status (request accepted but processing not complete)
+        return jsonify(response_data), 202
 
     except Exception as e:
         logger.error(f"Critical error in upload endpoint: {e}", exc_info=True)
